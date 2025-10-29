@@ -1,5 +1,5 @@
 # %% [markdown]
-# # B_01.03_CHIP27_Normalisation
+# # 01.03_Normalisation
 # Author: GM <br>
 
 # %%
@@ -24,8 +24,8 @@ import seaborn as sns
 import ipywidgets as widgets
  
  
-sc.settings.verbosity = 3             # show some output
-sc.settings.file_format_figs = 'svg'  # set this to 'svg' (notebook) or 'pdf' (files) if you want vector graphics
+sc.settings.verbosity = 3             
+sc.settings.file_format_figs = 'svg'  
 sc.settings.savefigs = False
  
 # plt.rcParams['font.family'] = 'sans-serif'
@@ -226,12 +226,6 @@ for sample in samples:
 
 
 # %% [markdown]
-# **COMMENT** this does not consider batch effect between libraries.
-# In iteration_A we integrated with BKNN. It makes sense BUT I don't think the segregation here is crazy:
-# * non-trated conditions are similar
-#   * SITTB2 includes also one little "horn" that could be due to the fact that CD14-CD15-CD66b- could be neut progenitors in SITTA2 (MUT) and mono progenitors in SITTB2 (WT)
-#   * SITTD2 and SITTE2 are enriched and have an extra "blob" of cells each, that is different between mut and wt. Could this be a real difference in transcriptional classes of monocytes that are present?
-# * IFN-y treated conditions are similar: there is a clear IFNy switch but they are quite matched between the two 
 
 # %% [markdown]
 # ---

@@ -1,5 +1,5 @@
 # %% [markdown]
-# # 05.01 Create pseudobulks for DGE
+# # 03.01 Create pseudobulks for DGE
 # Author:GM <br>
 # useful links: https://www.sc-best-practices.org/conditions/differential_gene_expression.html
 
@@ -44,19 +44,6 @@ import anndata as ann
 # %%
 import random
 import sc_toolbox
-#import pertpy I think this for vignette only
-
-#import rpy2.rinterface_lib.callbacks #deprecated
-#import anndata2ri #deprecated
-#import logging
-
-#from rpy2.robjects import pandas2ri
-#from rpy2.robjects import r
-
-#rpy2.rinterface_lib.callbacks.logger.setLevel(logging.ERROR)
-
-#anndata2ri.activate()
-#pandas2ri.activate()
 
 # #%load_ext rpy2.ipython
 
@@ -321,7 +308,7 @@ sc.pl.pca(adata_pb, color=adata_pb.obs, ncols=1, size=100)
 plt.gcf()
 
 # %% [markdown]
-# 'SITTB2_3_4' are almost overlapping but they are both un the same area
+# 
 
 # %% jupyter={"outputs_hidden": true}
 sc.pl.pca(adata_pb[adata_pb.obs['pseudor_pair'].isin(['SITTB2_3_4','SITTA2_0'])], color=adata_pb.obs, ncols=1, size=100)

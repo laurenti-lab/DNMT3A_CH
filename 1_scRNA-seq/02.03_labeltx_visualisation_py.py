@@ -1,5 +1,5 @@
 # %% [markdown]
-# # 02.03_CHIP27 Label transfer visualisation
+# # 02.03_Label transfer visualisation
 # Visualise label tx from:
 # 1. dataset from Kwok 2023 paper Nat Immunology
 # 2. Azimuth PBMC reference map

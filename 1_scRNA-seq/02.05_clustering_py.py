@@ -1,5 +1,5 @@
 # %% [markdown]
-# # 03.01_Clustering
+# # 02.05_Clustering
 #
 # Author:GM / HB <br>
 
@@ -25,8 +25,8 @@ import seaborn as sns
 import ipywidgets as widgets
  
  
-sc.settings.verbosity = 3             # show some output
-sc.settings.file_format_figs = 'svg'  # set this to 'svg' (notebook) or 'pdf' (files) if you want vector graphics
+sc.settings.verbosity = 3             
+sc.settings.file_format_figs = 'svg'  
 sc.settings.savefigs = False
  
 # plt.rcParams['font.family'] = 'sans-serif'
@@ -138,7 +138,7 @@ def markerplots(data, celltype, size=30, sort_order=False):
         data,
         color=marker_genes_in_data[celltype],
         vmin=0,
-        vmax="p99",  # NB max to 99 percentile but checl abs exp because this can cause problems for extremely lowly expressed genes
+        vmax="p99",  
         sort_order=sort_order,  
         frameon=False,
         cmap="Reds",
@@ -223,7 +223,7 @@ sc.write(filename, data)
 # ## Marker gene viz
 
 # %%
-data.X = data.layers["lognorm"] #not using regressed because it messes with total counts
+data.X = data.layers["lognorm"] 
 
 # %%
 counter=0

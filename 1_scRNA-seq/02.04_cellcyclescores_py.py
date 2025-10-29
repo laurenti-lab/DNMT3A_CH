@@ -1,5 +1,5 @@
 # %% [markdown]
-# # 02.05 cell cycle analysis
+# # 02.04 cell cycle analysis
 #
 # Author:GM <br>
 # useful links: https://satijalab.org/seurat/archive/v2.4/cell_cycle_vignette.html
@@ -26,8 +26,8 @@ import seaborn as sns
 import ipywidgets as widgets
  
  
-sc.settings.verbosity = 3             # show some output
-sc.settings.file_format_figs = 'svg'  # set this to 'svg' (notebook) or 'pdf' (files) if you want vector graphics
+sc.settings.verbosity = 3             
+sc.settings.file_format_figs = 'svg'  
 sc.settings.savefigs = False
  
 # plt.rcParams['font.family'] = 'sans-serif'

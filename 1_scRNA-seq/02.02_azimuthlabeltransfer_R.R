@@ -1,5 +1,5 @@
 # %% [markdown]
-# # B_02.02_CHIP27 Azimuth label transfer
+# # 02.02_Azimuth label transfer
 #
 # 1. Azimuth PBMC reference map
 # 2. dataset from Kwok 2023 paper Nat Immunology

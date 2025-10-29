@@ -1,6 +1,5 @@
-
 # %% [markdown]
-# # CHIP27_B_01.02_Cell and genes Filtering
+# # 01.02_Cell and genes Filtering
 #
 # Author: GM <br>
 
@@ -179,7 +178,7 @@ plt.draw()
 
 # %% [markdown]
 # **THRESHOLDS SET MANUALLY** <br>
-# MADs only visualised to have an idea. Then threshold set manually:we have clearly two distributions of counts, and doing the MAD method skews it towards the population on the left, since it's numerically more represented
+# MADs only visualised to have an idea. Then threshold set manually:we have clearly two distributions of counts, and doing the MAD method skews it towards the most abundant population 
 #
 #
 # upper theshold picked: 85000 counts. (I calculated 4MADs and went a bit more permissive to include more cells)

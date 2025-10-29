@@ -1,5 +1,5 @@
 # %% [markdown]
-# # B_02.04_CHIP27 Symphony label transfer
+# # 02.01_Symphony label transfer
 # Author:GM <br>
 # From: 
 # > https://htmlpreview.github.io/?https://github.com/andygxzeng/BoneMarrowMap_Extras/blob/main/BoneMarrowMap_Tutorial.nb.html
@@ -83,7 +83,7 @@ Sys.time()
 query <- predict_CellTypes(
   query_obj = query, 
   ref_obj = ref, 
-  initial_label = 'initial_CellType', # celltype assignments before filtering on mapping QC I don't have this but it's ok
+  initial_label = 'initial_CellType', 
   final_label = 'predicted_CellType'  # celltype assignments with map QC failing cells assigned as NA
 ) 
 
