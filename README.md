@@ -6,7 +6,7 @@ This repository contains the supporting code for the paper:
 
 The preprint of paper is available at: https://www.biorxiv.org/content/10.1101/2025.10.08.679225v1.full
 
-The codes are organised into folders that correspond to the analyses present in the paper.
+The **codes** are organised into folders that correspond to the analyses present in the paper.
 
 1. scRNA-seq analysis of *in-vitro* myeloid differentiation
     * Author: G.  Mantica
@@ -14,12 +14,15 @@ The codes are organised into folders that correspond to the analyses present in 
         - 00 preprocessing
         - 01 QC and data transformation
         - 02 clustering, label transfer, and pseudotime
-        - 03 differential gene expression, GSVEA, GSVA
+        - 03 differential gene expression, GSEA, GSVA
         - 04 Cell Chat
 
 2. bulk RNA-seq analysis of *in-vivo* myeloid differentiation
     * Author: G. Mantica
-    * The scripts are numbered following the analysis pipeline
+    * The scripts are numbered following the analysis pipeline:
+        - 00 preprocessing
+        - 01 QC, data transformation, PCA
+        - 02 differential gene expression, GSEA
 
 3. DNMT3A genotyping of single-cell derived colonies
     * Author: A. Vedi
@@ -35,7 +38,10 @@ The codes are organised into folders that correspond to the analyses present in 
 6. Shannon diversity and global methylation analysis on phylogenetic trees
     * Author: G. Mantica
 
-The data is currently hosted at:
+We acknowledge Hugo P. Bastos for the overall supervision of the bioinformatic work
+
+
+The **data** is currently hosted at:
 
 1. scRNA-seq: GEO GSE298242 
 
