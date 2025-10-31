@@ -30,7 +30,7 @@ The **codes** are organised into folders that correspond to the analyses present
 
 4. phenotyping analysis of single-cell derived colonies
     * Author: G. Mantica
-    * The scripts are numbered following the analysis pipeline 
+    * The scripts are numbered following the analysis pipeline
 
 5. multiparameter flow cytometry analysis of single-cell derived colonies with Cytotree
     * Author: A. Krzywon
