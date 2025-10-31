@@ -2,7 +2,8 @@
 # # 1_CHIP10_phenotypeanalysis_colonytypeassignment
 # Title:  Phenotype analysis, all experiments combined <br>
 # Author: Giovanna Mantica<br>
-# Description: This script analyzes flow cytometry data (exported from FlowJo 10.8.1)<br>
+# Description: This script analyzes flow cytometry data (exported from FlowJo 10.8.1) <br>
+#
 
 # %%
 suppressPackageStartupMessages({library(tidyverse)
