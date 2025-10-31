@@ -1,0 +1,288 @@
+---
+title: "LEUK19 Preprocessing"
+author: "Aditi Vedi"
+date: "2024/10/30"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(ggpubr)
+library(plater)
+library(reshape2)
+```
+
+```{r}
+
+```
+
+## Read in index data
+```{r}
+custom_read_plates <- function(fname, celltype){
+
+    plate_name <- str_split( basename(fname), '_' )[[1]][2]
+    plate_number <- as.numeric( gsub("\\D", "", plate_name ) ) 
+
+    x <- read_csv(fname) %>% 
+                  mutate(Plate = plate_number, Cell_seeded = celltype) %>% 
+                  select(1, 4:31, Plate, Cell_seeded) %>% 
+                  select(1, Plate, Cell_seeded, contains("Median")) # Select only the columns that contain the word "Median" - can also do starts with etc (google "select helpers")
+    return(x)    
+}
+```
+
+```{r}
+D21_P1 <- custom_read_plates("Input_data/Index_data/Plate_1_D21.csv", "HSC")
+D21_P2 <- custom_read_plates("Input_data/Index_data/Plate_2_D21.csv", "HSC")
+D21_P3a <- custom_read_plates("Input_data/Index_data/Plate_3a_D21.csv", "GMP")
+D21_P3b <- custom_read_plates("Input_data/Index_data/Plate_3b_D21.csv", "HSC")
+D21_P4 <- custom_read_plates("Input_data/Index_data/Plate_4_D21.csv", "HSC")
+D21_P5 <- custom_read_plates("Input_data/Index_data/Plate_5_D21.csv", "GMP")
+D21_P6 <- custom_read_plates("Input_data/Index_data/Plate_6_D21.csv", "HSC")
+```
+
+```{r}
+
+```
+
+#### verify column names from each Index file as they differ in plates 5 and 6
+```{r}
+colnames(D21_P1)
+colnames(D21_P2)
+colnames(D21_P3a)
+colnames(D21_P3b)
+colnames(D21_P4)
+colnames(D21_P5)
+colnames(D21_P6)
+```
+
+```{r}
+# Combine Plates 1-4
+LEUK19_Index <- bind_rows(D21_P1, D21_P2, D21_P3a, D21_P3b, D21_P4) %>% 
+  unite(Plate_well, Plate, Well)
+```
+```{r}
+
+```
+
+```{r}
+#  Correct column names from Plates 1-4 to match Plates 5-6
+colnames(LEUK19_Index)[3:16] <- str_remove_all(colnames(LEUK19_Index)[3:16], pattern = "All Events | Median") #
+colnames(LEUK19_Index)[6:15] <- word(colnames(LEUK19_Index)[6:15], 2)
+```
+```{r}
+# Join Plates 5-6 and correct column names
+
+Index_P5_6 <- bind_rows(D21_P5, D21_P6) %>% 
+  unite(Plate_well, Plate, Well)
+
+colnames(Index_P5_6)[3:16] <- str_remove_all(colnames(Index_P5_6)[3:16], pattern = "All Events | Median") #Remove certain words from the column names
+
+Index_P5_6 <- Index_P5_6 %>% 
+  rename(CD33 = "640 670/30-A", CD34 = "640 780/60-A", CD45Ra = "640 730/45-A", CD90 = "561 582/15-A", CD49f = "561 670/14-A", 
+         CD38 = "561 780/60-A", CD19 = "488 530/30-A", 'CD7-10' = "V405 450/50-A", dead = "V405 525/50-A", CD45 = "V405 780/60-A")
+```
+
+```{r}
+# Join Plates 1-4 with Plates 5-6
+
+colnames(LEUK19_Index)
+
+Index <- bind_rows(LEUK19_Index, Index_P5_6) %>% 
+  rename(Sort_id = "Plate_well")
+
+Index %>% count(Cell_seeded)
+
+write_csv(Index, "Processed_data/Index_data/LEUK19_Index.csv")
+```
+
+
+```{r}
+# Read in all Index data
+# Index <- read_csv("Processed_data/Index_data/LEUK19_Index.csv")
+```
+## Read in Phenotyping data
+
+```{r}
+# Read in plate layout to get sort_id esp for upside down plate
+
+file_path <- "Input_data/Phenotype_data/Plate_map_LEUK19_D21.csv"
+
+check_plater_format(file_path)
+
+plate <- read_plate(file = file_path, well_ids_column = 'Wells')
+plate$Wells <- str_remove(plate$Wells, '(?<=[A-Z])0*(?=[0-9])')
+
+Plate_map <- melt(plate, id = "Wells") %>% 
+  filter(!is.na(value)) %>%
+  mutate(Plate = as.character(variable), 
+         Plate = parse_number(Plate)) %>% 
+  unite(Plate_well, Plate, Wells) %>% 
+  rename(Sort_id = value) %>% 
+  select(-variable) %>% 
+  mutate(Exp = "LEUK19")
+
+write_csv(Plate_map, "Processed_data/Phenotype_data/LEUK19_D21_Plate_map.csv")
+```
+
+```{r}
+Harvested_colonies <- left_join(Plate_map, Index, by = "Sort_id")
+
+Harvested_colonies %>% count(Cell_seeded)
+```
+```{r}
+
+```
+
+## Read in FACS data
+```{r}
+FACS <- read_csv("Input_data/Phenotype_data/20231110_LEUK19_AML4_TrueFalse.csv") %>% 
+  filter(TrueFalse == "TRUE")
+```
+```{r}
+# Join FACS with sort_id from plate map
+
+True_colonies <- left_join(FACS, Harvested_colonies, by = "Plate_well") %>% 
+  filter(TrueFalse == "TRUE")
+
+True_colonies %>% count(Cell_seeded)
+
+write_csv(True_colonies, "Processed_data/Phenotype_data/LEUK19_True_colonies.csv")
+```
+```{r}
+
+```
+
+## Read in current seq VAF data
+
+```{r}
+Sample_id_D21 <- read_csv("Input_data/Genotype_data/Sample_id_LEUK19_D21.csv")
+
+VAF1 <- read_csv("Input_data/Genotype_data/Combined_VAF_pool1_DNMT3AR882H_LEUK19_23_29_34.csv")
+VAF2 <- read_csv("Input_data/Genotype_data/Combined_VAF_pool2_DNMT3AR882H_LEUK19_23_29_34.csv")
+VAF <- bind_rows(VAF1, VAF2) %>% 
+  mutate(Sample_id = parse_number(Sample_id))
+
+VAF <- left_join(Sample_id_D21, VAF, by = "Sample_id")%>% 
+  rename(Depth = `2:25456900-25457400`) %>% 
+  select(-Exp, -platename, -sample_name)
+```
+
+```{r}
+
+```
+
+```{r}
+VAF <- VAF %>% 
+  arrange(Depth)
+```
+
+```{r}
+
+```
+
+```{r}
+# filter out the colonies with low depth. i.e. keep colonies above the lowest depth that has at least 2 variant callers that call a colony mutant
+
+Temp_VAF <- VAF[ rowSums(VAF[c('VAF.varscan',	'VAF.mutect',	'VAF.platypus')] > 0.02 , na.rm=TRUE ) >= 2,]
+Depth_cutoff <- min(Temp_VAF$Depth)
+
+VAF <- VAF %>% 
+  filter(Depth>=Depth_cutoff)
+```
+
+```{r}
+
+```
+
+```{r}
+# Calculate mean VAF based on the 3 variant callers
+
+VAF <- VAF %>% 
+    rowwise() %>%
+    mutate(mean_VAF = mean(c(VAF.varscan, VAF.mutect, VAF.platypus), na.rm = TRUE)) %>%
+    ungroup()
+```
+
+
+```{r}
+# If any of the VAFs has been returned as NA (ie all variant callers were NA) then give it VAF = 0 ie WT
+
+VAF$mean_VAF[is.nan(VAF$mean_VAF)]<-0
+```
+
+```{r}
+
+```
+
+### Assign Mut/WT to VAFs
+```{r}
+VAF <- VAF %>% 
+  mutate(DNMT3A = case_when(mean_VAF < 0.02 ~ "WT",
+                             mean_VAF >= 0.02 ~ "MUT"),
+                             DNMT3A = fct_relevel(DNMT3A, c("WT", "MUT"))
+        )
+
+VAF %>% count(DNMT3A)
+```
+
+```{r}
+write_csv(VAF, "Processed_data/Genotype_data/LEUK19_VAF_data.csv")
+```
+
+```{r}
+
+```
+
+```{r}
+Final_data <- left_join(VAF, True_colonies, by = "Sort_id") %>% 
+  filter(!is.na(fcs.name)) %>%
+  filter(Cell_seeded == "HSC")
+
+Final_data %>% count(DNMT3A)
+```
+```{r}
+
+```
+
+```{r}
+dim(Final_data)
+```
+
+```{r}
+# clean up and save final data
+
+names(Final_data)[names(Final_data) == 'Plate_well.x'] <- 'Plate_well'
+
+drop = c('Plate_well.y')
+
+Final_data <- Final_data[,!(names(Final_data) %in% drop)]
+
+dim(Final_data)
+```
+
+```{r}
+
+```
+
+```{r}
+filename_prefix <- format(as.Date(Sys.time()), "%Y%m%d")
+
+outname <- paste0("Processed_data/",filename_prefix,"_LEUK19_Final_data.csv")
+
+write_csv( Final_data,  outname)
+
+print(outname)
+```
+
+```{r}
+
+```
+
+```{r}
+sessionInfo()
+```
+
+```{r}
+
+```

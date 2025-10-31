@@ -1,0 +1,358 @@
+---
+title: "LEUK4 CytoTree analysis"
+author: "Aleksandra Krzywon"
+date: "2024/05/03"
+output: 
+    html_document:
+        toc: true
+---
+
+```{r}
+library(CytoTree)
+library(ggplot2)
+library(flowCore)
+library(stringr)
+library(ggrastr)
+library(rasterpdf)
+library(pracma)
+library(plot3D)
+library (dplyr)
+```
+
+
+
+
+
+## Read FCS files
+```{r}
+fcs.files <- list.files('Input/', pattern = '.fcs$', full = TRUE)
+fcs.data<- runExprsMerge(fcs.files, comp = FALSE, transformMethod = "none")
+
+# Simplify colnames of fcs data
+recol <- c("FJComp-red laser-670_14-A<CD56 APC>" = "CD56", 
+           "FJComp-red laser-780_60-A<CD11b APCCy7>" = "CD11b", 
+           "FJComp-yellow laser-582_15-A<GlyA PE>" = "GlyA",
+           "FJComp-yellow laser-780_60-A<CD14 PC7>" = "CD14", 
+           "FJComp-violet laser-450_50-A<CD15 BV421>" = "CD15", 
+           "FJComp-yellow laser-670_30-A<CD45 PC5>" = "CD45")
+colnames(fcs.data)[match(names(recol), colnames(fcs.data))] = recol
+fcs.data <- fcs.data[, recol]
+```
+
+
+## Adding genotype/colony metadata
+
+```{r}
+meta.data<-as.data.frame(fcs.data)
+meta.data <- meta.data %>% 
+  mutate(genotype  = case_when (
+    str_detect(rownames(meta.data), "MUT")~ "DNMT3A MUT",
+    TRUE ~ "WT")
+  )
+  
+# duplicate column 
+meta.data <- meta.data %>% mutate(stage = rownames(meta.data))
+meta.data <- meta.data %>% mutate(cell = rownames(meta.data))
+
+
+meta.data <- meta.data %>% 
+  mutate(Mono = case_when (
+    str_detect(rownames(meta.data), "WT_Plate2_plate2_C02_026")~ "Mono",
+    str_detect(rownames(meta.data), "WT_Plate2_plate2_D12_048")~ "Mono",
+    TRUE ~ "")
+  )
+
+table(meta.data$Mono)
+
+meta.data <- meta.data %>% 
+  mutate(Ery = case_when (
+    str_detect(rownames(meta.data), "MUT_Plate2_plate2_E07_055")~ "Ery",
+    str_detect(rownames(meta.data), "MUT_Plate2_plate2_E05_053")~ "Ery",
+    TRUE ~ "")
+  )
+
+table(meta.data$Ery)
+
+meta.data <- meta.data %>% 
+  mutate(Other = case_when (
+    str_detect(rownames(meta.data), "MUT_Plate2_plate2_B11_023")~ "Other",
+    str_detect(rownames(meta.data), "MUT_Plate2_plate2_C07_031")~ "Other",
+    TRUE ~ "")
+  )
+
+table(meta.data$Other)
+
+meta.data<-select(meta.data,cell,stage, Mono, Ery, Other, genotype)
+```
+
+
+
+## CytoTree processing
+
+```{r}
+# names of markers
+markers <- c("CD56" ,"CD11b", "GlyA","CD14","CD15","CD45" )
+# Build the CYT object
+cyt_LEUK_4 <- createCYT(raw.data = fcs.data, markers = markers,
+                 meta.data = meta.data,
+                 normalization.method = "log",
+                 verbose = TRUE)
+
+cyt_LEUK_4 <- cyt_LEUK_4 %>% runCluster() %>% processingCluster(downsampling.size = 1) %>% 
+  runFastPCA() %>% runTSNE() %>%  runDiffusionMap() %>% runUMAP() %>% 
+  buildTree()
+
+# Fetching plot metadata of CYT - data.frame containing meta information for visualization
+plot.meta <- fetchPlotMeta(cyt_LEUK_4)
+# logarithmized marker results
+marker_log <- cyt_LEUK_4@log.data
+
+# combine all data 
+LEUK_4 <- merge(plot.meta, marker_log, by=0, all=TRUE)
+
+
+prefix <- format(as.Date(Sys.time()), "%Y%m%d")
+
+saveRDS(file=paste0("Processed/",prefix,"_LEUK4_ARCH1_cyt.rds"), cyt_LEUK_4)
+saveRDS(file=paste0("Processed/",prefix,"_LEUK4_ARCH1_plot_meta.rds"), plot.meta)
+saveRDS(file=paste0("Processed/",prefix,"_LEUK4_ARCH1_combine.rds"), LEUK_4)
+
+```
+
+
+
+
+## UMAP output
+
+```{r}
+plot_umap_1 <- function(data, outname, group, color_vec, resolution=300){
+
+    raster_pdf( file = paste0(outname, "_", group, "_cells_raster.pdf"), res=resolution )
+    p <- ggplot(data, aes(x= UMAP_1, y= UMAP_2, color=group))+ 
+                geom_point(size=1) + theme(legend.position="top")+
+                scale_color_manual(values = color_vec)+
+                xlim(-7, 13)+ ylim(-12, 10)
+    return(p)
+}
+```
+
+```{r}
+LEUK_4$placeholder<-paste("all")
+WT <- dplyr::filter(LEUK_4, grepl("WT",genotype))
+MUT <- dplyr::filter(LEUK_4, grepl("DNMT3A MUT",genotype))
+
+
+# UMAP of all cells (WT+DNMT3A MUT)
+p <- plot_umap_1(LEUK_4, 'Processed/LEUK4', 'placeholder', c("darkorchid"))
+p
+dev.off()
+
+
+# WT
+p <- plot_umap_1(WT, 'Processed/LEUK4', 'genotype', c("brown2"))
+p
+dev.off()
+
+# DNMT3A MUT
+p <- plot_umap_1(MUT, 'Processed/LEUK4', 'genotype', c("blue"))
+p
+dev.off()
+```
+
+
+```{r}
+Ery <- LEUK_4[LEUK_4$Ery == 'Ery',]
+Mono <- LEUK_4[LEUK_4$Mono == 'Mono',]
+Other <- LEUK_4[LEUK_4$Other == 'Other',]
+
+# Ery
+p <- plot_umap_1(Ery, 'Processed/LEUK4', 'Ery', c("darkred"))
+p
+dev.off()
+
+# Mono
+p <- plot_umap_1(Mono, 'Processed/LEUK4', 'Mono', c("chartreuse3"))
+p
+dev.off()
+
+# Other
+p <- plot_umap_1(Other, 'Processed/LEUK4', 'Other', c("orange"))
+p
+dev.off()
+```
+
+
+
+
+## Marker's UMAPs
+
+```{r}
+
+plot_umap_expr <- function(data, outname, target, color_vec, resolution=300) {
+
+    raster_pdf( file = paste0(outname, "_", target, "_raster.pdf"), res=resolution )
+    umap <- plot2D(data, item.use = c("UMAP_1", "UMAP_2"), 
+                  color.by = target, 
+                  alpha = 1, main = "UMAP", category = "numeric") + 
+                  scale_colour_gradientn(colors=color_vec )+ xlim(-7, 13)+ ylim(-12, 10)
+    return(umap)
+}
+
+```
+
+```{r}
+
+
+cmap <- c("navy", "forestgreen", "firebrick3" )
+# CD45
+p <- plot_umap_expr(cyt_LEUK_4, 'Processed/LEUK4', 'CD45', cmap)
+p
+dev.off()
+
+
+# CD11b
+p <- plot_umap_expr(cyt_LEUK_4, 'Processed/LEUK4', 'CD11b', cmap)
+p
+dev.off()
+
+
+# CD56
+p <- plot_umap_expr(cyt_LEUK_4, 'Processed/LEUK4', 'CD56', cmap)
+p
+dev.off()
+ 
+# GlyA
+p <- plot_umap_expr(cyt_LEUK_4, 'Processed/LEUK4', 'GlyA', cmap)
+p
+dev.off()
+
+
+# CD14
+p <- plot_umap_expr(cyt_LEUK_4, 'Processed/LEUK4', 'CD14', cmap)
+p
+dev.off()
+
+
+# CD15
+p <- plot_umap_expr(cyt_LEUK_4, 'Processed/LEUK4', 'CD15', cmap)
+p
+dev.off()
+
+
+```
+
+
+##	Ratio of DNMT3A MUT / WT  
+
+```{r}
+# Simulate data:
+x <- LEUK_4$UMAP_1
+y <- LEUK_4$UMAP_2
+
+# Create cuts:
+x_c <- cut(x, 50)
+y_c <- cut(y, 50)
+
+levels <- cbind(LEUK_4,x_c, y_c)
+
+WT_l <- dplyr::filter(levels, grepl("WT",genotype))
+DM_l <- dplyr::filter(levels, grepl("DNMT3A MUT",genotype))
+
+WT_l_p <- WT_l %>%
+  select(dowsample) %>%
+  group_by(WT_l$x_c, WT_l$y_c,.drop=FALSE) %>%
+  summarise(sum = sum(dowsample))
+
+names(WT_l_p)[1] <- "UMAP_1_i"
+names(WT_l_p)[2] <- "UMAP_2_i"
+names(WT_l_p)[3] <- "sum_WT"
+
+
+DM_l_p <- DM_l %>%
+  select(dowsample) %>%
+  group_by(DM_l$x_c, DM_l$y_c,.drop=FALSE) %>%
+  summarise(sum = sum(dowsample))
+
+names(DM_l_p)[1] <- "UMAP_1_i"
+names(DM_l_p)[2] <- "UMAP_2_i"
+names(DM_l_p)[3] <- "sum_DM"
+
+
+new_dataset <- DM_l_p %>% right_join(WT_l_p, by=c("UMAP_1_i","UMAP_2_i"))
+
+new_dataset$divide_DM<-new_dataset$sum_DM/dim(DM_l)[1]
+new_dataset$divide_WT<-new_dataset$sum_WT/dim(WT_l)[1]
+
+
+new_dataset$divide_DM_WT<-ifelse (new_dataset$divide_WT ==0, new_dataset$divide_DM,new_dataset$divide_DM/new_dataset$divide_WT )
+
+
+new_dataset$divide_DM_WT[new_dataset$divide_DM_WT ==0] <- NA
+
+new_dataset<- new_dataset %>% mutate(divide_DM_WT = ifelse(divide_DM_WT < 1, - 1/divide_DM_WT, divide_DM_WT))
+
+
+max(new_dataset$divide_DM_WT, na.rm = TRUE) #  20 
+min(new_dataset$divide_DM_WT, na.rm = TRUE)
+
+order<-new_dataset$divide_DM_WT
+
+order<-sort(order,decreasing=FALSE,na.last=TRUE)  #  -8 
+order
+o<-new_dataset
+
+o$divide_DM_WT[o$divide_DM_WT <= -8] <- -7.9 
+o$divide_DM_WT[o$divide_DM_WT >= 8] <- 7.9 
+min(o$divide_DM_WT, na.rm = TRUE)
+max(o$divide_DM_WT, na.rm = TRUE)
+
+breaks <- c(-8, -7,-6,-5,-4,-3,-2,-1,1,2,3,4,5,6,7,8)
+
+pp = matrix(o$divide_DM_WT, nrow=50, ncol=50, byrow=TRUE)
+
+pp <- as.matrix(pp)
+
+pp <- rot90(pp,1)
+
+
+raster_pdf(file = "LEUK4_proportion_DM_WT_8_8.pdf")
+
+
+h <- image2D(z=pp, col = c("brown", "orangered2", "orangered" ,"darkorange2" , "orange2","darkgoldenrod2", "gold2", "white","lightskyblue","dodgerblue1",
+                                "dodgerblue2" ,"dodgerblue3" ,"blue2","blue3" ,"blue4"),       
+                                
+           breaks=breaks,
+           main ="UMAP of mutant/WT ", xlab="UMAP1",ylab="UMAP 2",
+           border = NA, facets = TRUE, contour = FALSE, theta= -270)
+h           
+dev.off()
+
+
+# propostion 1 and -1 
+
+divide_1 <- pp
+divide_2 <- pp
+
+divide_1[divide_1 < 0 ] <- -1
+divide_1
+divide_1[divide_1 > 0 ] <- 1
+divide_1
+divide_1[divide_1 == 0] <- NA
+
+
+raster_pdf(file = "LEUK4_proportion_DM_WT_1_1.pdf")
+h < -image2D(z=divide_1,col = c( "orange","blue"),border = NA, facets = TRUE, contour = FALSE, theta=-270,main ="UMAP of mutant/WT", xlab="UMAP1",ylab="UMAP 2") 
+h
+dev.off()
+
+
+
+sessionInfo()
+```
+
+
+
+
+
+
+

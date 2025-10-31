@@ -1,0 +1,431 @@
+---
+title: "LEUK34_Preprocessing"
+author: "Aditi Vedi"
+date: "2023/11/24"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(ggpubr)
+library(plater)
+library(reshape2)
+```
+
+## Read in index data
+```{r}
+P1 <- read_csv("Input_data/Index_data/P1.csv") %>% 
+  mutate(Plate = 1, Cell_seeded = "HSC") %>% 
+  select(1, 4:17, Plate, Cell_seeded) 
+P2 <- read_csv("Input_data/Index_data/P2.csv") %>% 
+  mutate(Plate = 2, Cell_seeded = "HSC") %>% 
+  select(1, 4:17, Plate, Cell_seeded) 
+P3 <- read_csv("Input_data/Index_data/P3.csv") %>% 
+  mutate(Plate = 3, Cell_seeded = "HSC") %>% 
+  select(1, 4:17, Plate, Cell_seeded) 
+P4 <- read_csv("Input_data/Index_data/P4.csv") %>% 
+  mutate(Plate = 4, Cell_seeded = "HSC") %>% 
+  select(1, 4:17, Plate, Cell_seeded) 
+P5 <- read_csv("Input_data/Index_data/P5.csv") %>% 
+  mutate(Plate = 5, Cell_seeded = "HSC") %>% 
+  select(1, 4:17, Plate, Cell_seeded) 
+P6 <- read_csv("Input_data/Index_data/P6.csv") %>% 
+  mutate(Plate = 6, Cell_seeded = "HSC") %>% 
+  select(1, 4:17, Plate, Cell_seeded) 
+P7 <- read_csv("Input_data/Index_data/P7.csv") %>% 
+  mutate(Plate = 7, Cell_seeded = "HSC") %>% 
+  select(1, 4:17, Plate, Cell_seeded) 
+P8 <- read_csv("Input_data/Index_data/P8.csv") %>% 
+  mutate(Plate = 8, Cell_seeded = "HSC") %>% 
+  select(1, 4:17, Plate, Cell_seeded) 
+P9 <- read_csv("Input_data/Index_data/P9.csv") %>% 
+  mutate(Plate = 9, Cell_seeded = "HSC") %>% 
+  select(1, 4:17, Plate, Cell_seeded) 
+P10 <- read_csv("Input_data/Index_data/P10.csv") %>% 
+  mutate(Plate = 10, Cell_seeded = "HSC") %>% 
+  select(1, 4:17, Plate, Cell_seeded) 
+
+LEUK34_Index <- bind_rows(P1, P2, P3, P4, P5, P6, P7, P8, P9, P10) %>% 
+  unite(Sort_id, Plate, Well)
+
+colnames(LEUK34_Index)
+
+colnames(LEUK34_Index)[2:15] <- str_remove_all(colnames(LEUK34_Index)[2:15], pattern = "Cells | Median") #Remove certain words from the column names
+colnames(LEUK34_Index)[5:14] <- word(colnames(LEUK34_Index)[5:14], 1) #Remove certain words from the column names
+
+colnames(LEUK34_Index)
+
+LEUK34_Index <- LEUK34_Index %>% 
+  rename(CD45 = "V405")
+
+colnames(LEUK34_Index)
+
+LEUK34_Index %>% count(Cell_seeded)
+
+write_csv(LEUK34_Index, "Processed_data/Index_data/LEUK34_Index.csv")
+```
+
+```{r}
+# Read in collated Index data
+
+Index <- read_csv("Processed_data/Index_data/LEUK34_Index.csv")
+```
+```{r}
+
+```
+
+## Read in Phenotyping data
+
+```{r}
+# Read in plate layout to get sort_id esp for upside down plate
+
+file_path <- "Input_data/Phenotype_data/Harvest_plan_LEUK34.csv"
+
+check_plater_format(file_path)
+
+plate <- read_plate(file = file_path, well_ids_column = 'Wells')
+plate$Wells <- str_remove(plate$Wells, '(?<=[A-Z])0*(?=[0-9])')
+
+Plate_map <- melt(plate, id = "Wells") %>% 
+  filter(!is.na(value)) %>%
+  mutate(Plate = as.character(variable), 
+         Plate = parse_number(Plate)) %>% 
+  unite(Plate_well, Plate, Wells) %>% 
+  rename(Sort_id = value) %>% 
+  select(-variable)
+
+write_csv(Plate_map, "Processed_data/Phenotype_data/LEUK34_Plate_map.csv")
+```
+
+```{r}
+Harvested_colonies <- left_join(Plate_map, Index, by = "Sort_id")
+
+Harvested_colonies %>% count(Cell_seeded)
+```
+```{r}
+
+```
+
+## Read in FACS data
+```{r}
+FACS <- read_csv("Input_data/Phenotype_data/20231124_LEUK34_AML3_TrueFalse.csv") %>% 
+  filter(TrueFalse == "TRUE")
+```
+```{r}
+# Join FACS with sort_id from plate map
+
+True_colonies <- left_join(FACS, Harvested_colonies, by = "Plate_well") %>% 
+  filter(TrueFalse == "TRUE")
+
+True_colonies %>% count(Cell_seeded)
+
+write_csv(True_colonies, "Processed_data/Phenotype_data/LEUK34_True_colonies.csv")
+```
+```{r}
+
+```
+
+## Read in current seq VAF data
+
+```{r}
+Sample_id <- read_csv("Input_data/Genotype_data/Plate_map_LEUK19_23_29_34.csv") %>% 
+  select(2, 4:9, 12) %>% 
+  mutate(Sample_id = parse_number(`sample id for samplesheet`)) %>% 
+  mutate(variable = parse_number(variable)) %>% #Extract number only 
+  unite(col = "Plate_well", variable, 'well clean') %>% 
+  select(2:4, 7:8) %>% 
+  filter(Exp == "LEUK34") %>% 
+  select(-Sort_id)
+```
+###  Pool1
+
+#### Run statistics
+
+```{r}
+Run <- read_csv("Input_data/Genotype_data/Run1/run_statistics.csv")
+```
+
+```{r}
+# Keeping only samples from our run
+
+Run<- Run %>% 
+  separate(...1, into = c("Sample_id", NA)) %>% 
+  filter(!str_detect(Sample_id, "contig")) %>% 
+  mutate(sample_name = parse_number(Sample_id)) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, `2:25456900-25457400`, Sample_id)
+```
+#### mutect
+```{r}
+mutect <- read_csv("Input_data/Genotype_data/Run1/total_mutect.csv") %>% 
+  mutate(Start = as.numeric(Start))
+```
+```{r}
+# Keeping only samples from our run
+# looking at DNMT3A R882H (Start/End position 25457242 as per Human assembly: Feb 2009(GRCh7/hg19))
+
+mutect <- mutect %>% 
+  filter(Start == 25457242) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, VAF) %>% 
+  rename(VAF.mutect = VAF) %>% 
+  separate(sample_name, into = c("sample_name", NA)) %>% 
+  mutate(sample_name = parse_number(sample_name))
+```
+#### varscan
+```{r}
+varscan <- read_csv("Input_data/Genotype_data/Run1/total_varscan.csv") %>% 
+  mutate(Start = as.numeric(Start))
+```
+```{r}
+# Keeping only samples from our run
+# looking at DNMT3A R882H (Start/End position 25457242 as per Human assembly: Feb 2009(GRCh7/hg19))
+
+varscan <- varscan %>% 
+  filter(Start == 25457242) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, VAF) %>% 
+  rename(VAF.varscan = VAF) %>% 
+  separate(sample_name, into = c("sample_name", NA)) %>% 
+  mutate(sample_name = parse_number(sample_name))
+```
+#### platypus
+```{r}
+platypus <-  read_csv("Input_data/Genotype_data/Run1/total_platypus.csv") %>% 
+  mutate(Start = as.numeric(Start))
+```
+```{r}
+# Keeping only samples from our run
+# looking at DNMT3A R882H (Start/End position 25457242 as per Human assembly: Feb 2009(GRCh7/hg19))
+
+platypus <- platypus %>% 
+  filter(Start == 25457242) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, VAF) %>% 
+  rename(VAF.platypus = VAF) %>% 
+  separate(sample_name, into = c("sample_name", NA)) %>% 
+  mutate(sample_name = parse_number(sample_name))
+```
+```{r}
+
+```
+
+```{r}
+# Combine all above data into single file containing depth from run stats and VAF from 3 variant callers
+
+VAF1 <- left_join(Run, varscan, by = "sample_name")
+VAF1 <- left_join(VAF1, mutect, by = "sample_name")
+VAF1 <- left_join(VAF1, platypus, by = "sample_name")
+
+write_csv(VAF1, "Processed_data/Genotype_data/VAF1.csv")
+```
+### Pool2
+
+#### Run statistics
+
+```{r}
+Run <- read_csv("Input_data/Genotype_data/Run2/run_statistics.csv")
+```
+
+```{r}
+# Keeping only samples from our run
+
+Run<- Run %>% 
+  separate(...1, into = c("Sample_id", NA)) %>% 
+  filter(!str_detect(Sample_id, "contig")) %>% 
+  mutate(sample_name = parse_number(Sample_id)) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, `2:25456900-25457400`, Sample_id) 
+```
+#### mutect
+```{r}
+mutect <- read_csv("Input_data/Genotype_data/Run2/total_mutect.csv") %>% 
+  mutate(Start = as.numeric(Start))
+```
+```{r}
+# Keeping only samples from our run
+# looking at DNMT3A R882H (Start/End position 25457242 as per Human assembly: Feb 2009(GRCh7/hg19))
+
+mutect <- mutect %>% 
+  filter(Start == 25457242) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, VAF) %>% 
+  rename(VAF.mutect = VAF) %>% 
+  separate(sample_name, into = c("sample_name", NA)) %>% 
+  mutate(sample_name = parse_number(sample_name))
+```
+#### varscan
+```{r}
+varscan <- read_csv("Input_data/Genotype_data/Run2/total_varscan.csv") %>% 
+  mutate(Start = as.numeric(Start))
+```
+```{r}
+# Keeping only samples from our run
+# looking at DNMT3A R882H (Start/End position 25457242 as per Human assembly: Feb 2009(GRCh7/hg19))
+
+varscan <- varscan %>% 
+  filter(Start == 25457242) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, VAF) %>% 
+  rename(VAF.varscan = VAF) %>% 
+  separate(sample_name, into = c("sample_name", NA)) %>% 
+  mutate(sample_name = parse_number(sample_name))
+```
+#### platypus
+```{r}
+platypus <-  read_csv("Input_data/Genotype_data/Run2/total_platypus.csv") %>% 
+  mutate(Start = as.numeric(Start))
+```
+```{r}
+# Keeping only samples from our run
+# looking at DNMT3A R882H (Start/End position 25457242 as per Human assembly: Feb 2009(GRCh7/hg19))
+
+platypus <- platypus %>% 
+  filter(Start == 25457242) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, VAF) %>% 
+  rename(VAF.platypus = VAF) %>% 
+  separate(sample_name, into = c("sample_name", NA)) %>% 
+  mutate(sample_name = parse_number(sample_name))
+```
+```{r}
+# Combine all above data into single file containing depth from run stats and VAF from 3 variant callers
+
+VAF2 <- left_join(Run, varscan, by = "sample_name")
+VAF2 <- left_join(VAF2, mutect, by = "sample_name")
+VAF2 <- left_join(VAF2, platypus, by = "sample_name")
+
+write_csv(VAF2, "Processed_data/Genotype_data/VAF2.csv")
+```
+```{r}
+# Join VAFs from both runs with Sample id
+
+VAF <- bind_rows(VAF1, VAF2) %>% 
+  mutate(Sample_id = parse_number(Sample_id))
+
+VAF <- left_join(Sample_id, VAF, by = "Sample_id")%>% 
+  rename(Depth = '2:25456900-25457400')
+```
+
+```{r}
+VAF <- VAF %>% 
+  arrange(Depth)
+```
+```{r}
+# filter out the colonies with low depth. i.e. keep colonies above the lowest depth that has at least 2 variant callers that call a colony mutant
+
+Temp_VAF <- VAF[ rowSums(VAF[c('VAF.varscan',	'VAF.mutect',	'VAF.platypus')] > 0.02 , na.rm=TRUE ) >= 2,]
+Depth_cutoff <- min(Temp_VAF$Depth)
+
+VAF <- VAF %>% 
+  filter(Depth>=Depth_cutoff)
+```
+```{r}
+# Calculate mean VAF based on the 3 variant callers
+
+VAF <- VAF %>% 
+    rowwise() %>%
+  mutate(mean_VAF = mean(c(VAF.varscan, VAF.mutect, VAF.platypus), na.rm = TRUE)) %>%
+  ungroup()
+```
+
+```{r}
+#If any of the VAFs' mean has been returned as NA (i.e. all variant callers were NA) then give it VAF = 0 ie WT
+VAF$mean_VAF[is.nan(VAF$mean_VAF)]<-0
+```
+```{r}
+
+```
+
+### Assign Mut/WT to VAFs
+```{r}
+VAF <- VAF %>% 
+  mutate (DNMT3A = case_when(mean_VAF < 0.02 ~ "WT",
+                                 mean_VAF >= 0.02 ~ "MUT"),
+          DNMT3A = fct_relevel(DNMT3A, c("WT", "MUT")))
+
+VAF <- left_join(Sample_id, VAF, by = "Sample_id")
+
+VAF %>% count(DNMT3A)
+
+write_csv(VAF, "Processed_data/Genotype_data/LEUK34_final_VAF.csv")
+```
+```{r}
+
+```
+
+```{r}
+# clean-up columns before final join
+
+VAF <-  VAF %>%
+    rename(Plate_well = Plate_well.x) %>% 
+    rename(Exp = Exp.x) %>% 
+    rename(platename = platename.x)
+
+drop = c(
+         'Plate_well.y',
+         'Exp.y',
+         'platename.y'
+        )
+
+VAF <- VAF[,!(names(VAF) %in% drop)]
+```
+
+```{r}
+
+```
+
+## Join VAF with True colonies
+```{r}
+VAF <- left_join(Plate_map, VAF, by = "Plate_well")
+
+Final_data <- left_join(VAF, True_colonies, by = "Sort_id") %>% 
+  filter(!is.na(fcs.name)) %>% 
+  filter(!is.na(DNMT3A))
+
+Final_data %>% count(DNMT3A)
+```
+
+
+
+```{r}
+dim(Final_data)
+```
+
+```{r}
+
+```
+
+```{r}
+# clean up and save final data
+
+names(Final_data)[names(Final_data) == 'Plate_well.x'] <- 'Plate_well'
+
+drop = c('Plate_well.y')
+
+Final_data <- Final_data[,!(names(Final_data) %in% drop)]
+
+dim(Final_data)
+```
+
+```{r}
+
+```
+
+```{r}
+filename_prefix <- format(as.Date(Sys.time()), "%Y%m%d")
+
+outname <- paste0("Processed_data/",filename_prefix,"_LEUK34_Final_data.csv")
+
+write_csv( Final_data,  outname)
+
+print(outname)
+```
+
+```{r}
+
+```
+
+```{r}
+sessionInfo()
+```

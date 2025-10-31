@@ -1,7 +1,5 @@
 # %% [markdown]
 # # 4_CHIP10_phenotypeanalysis_stats
-# R notebook
-#
 # Title:  Phenotype analysis, all experiments combined<br>
 # Author: Giovanna Mantica, with support of the University of Cambridge Statistics Clinic (Centre for Mathematical Sciences) <br>
 

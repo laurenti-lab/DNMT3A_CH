@@ -1,0 +1,145 @@
+---
+title: "LEUK23"
+author: "Aditi Vedi"
+date: "22/12/2023"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(ggpubr)
+setwd("~/Desktop/Research/Papers/LEUK Paper/Bioinformatics/GitHub/LEUK23_AML8/")
+```
+
+# Read in index data
+```{r}
+INX_P1 <- read_csv("Raw data/Index data/P1_D21.csv") %>% 
+  mutate(Plate = 1, Cell_seeded = "HSC")
+INX_P2 <- read_csv("Raw data/Index data/P1_D21.csv") %>% 
+  mutate(Plate = 2, Cell_seeded = "HSC")
+INX_P3 <- read_csv("Raw data/Index data/P1_D21.csv") %>% 
+  mutate(Plate = 3, Cell_seeded = "HSC")
+INX_P4 <- read_csv("Raw data/Index data/P1_D21.csv") %>% 
+  mutate(Plate = 4, Cell_seeded = "HSC")
+INX_P5 <- read_csv("Raw data/Index data/P1_D21.csv") %>% 
+  mutate(Plate = 5, Cell_seeded = "GMP")
+INX_P6 <- read_csv("Raw data/Index data/P1_D21.csv") %>% 
+  mutate(Plate = 6, Cell_seeded = "HSC")
+INX_P7 <- read_csv("Raw data/Index data/P1_D21.csv") %>% 
+  mutate(Plate = 7, Cell_seeded = "HSC")
+INX_P8 <- read_csv("Raw data/Index data/P1_D21.csv") %>% 
+  mutate(Plate = 8, Cell_seeded = "HSC")
+INX_P9 <- read_csv("Raw data/Index data/P1_D21.csv") %>% 
+  mutate(Plate = 9, Cell_seeded = "GMP")
+INX_P10 <- read_csv("Raw data/Index data/P1_D21.csv") %>% 
+  mutate(Plate = 10, Cell_seeded = "HSC")
+INX_P11 <- read_csv("Raw data/Index data/P1_D21.csv") %>% 
+  mutate(Plate = 11, Cell_seeded = "HSC")
+INX_P12a <- read_csv("Raw data/Index data/P1_D21.csv") %>% 
+  mutate(Plate = 12, Cell_seeded = "HSC")
+INX_P12b <- read_csv("Raw data/Index data/P1_D21.csv") %>% 
+  mutate(Plate = 12, Cell_seeded = "GMP")
+
+Index <- bind_rows(INX_P1, INX_P2, INX_P3, INX_P4, INX_P5, INX_P6, INX_P7, INX_P8, INX_P9, INX_P10, INX_P11, INX_P12a, INX_P12b) %>% 
+  select(1, 4:47) %>% 
+  select(1, contains("Median"), 44:45) %>% 
+  unite(Sort_id, Plate, Well, sep = "_")
+
+colnames(LEUK23_D21_Index)
+
+colnames(LEUK23_D21_Index)[2:15] <- str_remove_all(colnames(LEUK23_D21_Index)[2:15], pattern = "All Events | Median") #Remove certain words from the column names
+colnames(LEUK23_D21_Index)[5:14] <- word(colnames(LEUK23_D21_Index)[5:14], 1) #Remove certain words from the column names
+
+write_csv(Index, "Raw data/Index data/LEUK23_Index.csv")
+
+Index %>% 
+  count(Cell_seeded)
+```
+
+#Read in harvested colonies plate map
+```{r}
+library(plater)
+library(reshape2)
+file_path <- "Raw data/Phenotype data/LEUK23_D21.csv"
+
+check_plater_format(file_path)
+
+plate <- read_plate(file = file_path, well_ids_column = 'Wells')
+
+Plate_map <- melt(plate, id = "Wells") %>% 
+  filter(!is.na(value)) %>%
+  mutate(Plate = as.character(variable)) %>% 
+  mutate(Plate = tolower(Plate)) %>% 
+  unite(Plate_well, Plate, Wells) %>% 
+  rename(Sort_id = value)
+
+write_csv(Plate_map, "Raw data/Phenotype data/LEUK23_Plate_map.csv")
+
+Harvested_colonies <- left_join(Plate_map, Index, by = "Sort_id")
+
+Harvested_colonies %>% count(Cell_seeded)
+
+```
+
+# Run statistics
+```{r}
+Sample_id_D21 <- read_csv("Raw data/Genotype data/Sample_id_LEUK23_D21.csv")
+
+VAF1 <- read_csv("~/Desktop/Research/Papers/LEUK Paper/Bioinformatics/GitHub/Genotyping results/LEUK19_23_29_34_pool1_MiniseqR50/Combined_VAF_pool1_DNMT3AR882H_LEUK19_23_29_34.csv")
+VAF2 <- read_csv("~/Desktop/Research/Papers/LEUK Paper/Bioinformatics/GitHub/Genotyping results/LEUK19_23_29_34_pool2_MiniseqR52/Combined_VAF_pool2_DNMT3AR882H_LEUK19_23_29_34.csv")
+VAF <- bind_rows(VAF1, VAF2) %>% 
+  mutate(Sample_id = parse_number(Sample_id))
+
+VAF <- left_join(Sample_id_D21, VAF, by = "Sample_id") %>% 
+  select(-sample_name) %>% 
+  rename(Depth = "2:25456900-25457400")
+
+write_csv(VAF, "Raw data/Genotype data/VAF_data.csv")
+```
+# Manually add underscores for all Sort_id names
+```{r}
+VAF <- read_csv("Raw data/Genotype data/VAF_data.csv")
+```
+
+```{r}
+VAF <- VAF %>% 
+  arrange(Depth)
+```
+#filter out the colonies with low depth. ie filter  colonies above the lowest depth that has at least 2 variant callers that call a colony mutant
+```{r}
+Temp_VAF <- VAF[ rowSums(VAF[c('VAF.varscan',	'VAF.mutect',	'VAF.platypus')] > 0.02 , na.rm=TRUE ) >= 2,]
+Depth_cutoff <- min(Temp_VAF$Depth)
+
+VAF <- VAF %>% 
+  filter(Depth>=Depth_cutoff)
+
+```
+#Calculate mean VAF based on3 3 variant callers
+```{r}
+VAF <- VAF %>% 
+    rowwise() %>%
+  mutate(mean_VAF = mean(c(VAF.varscan, VAF.mutect, VAF.platypus), na.rm = TRUE)) %>%
+  ungroup()
+```
+
+#If any of the VAFs has been returned as NA (ie all variant callers were NA) then give it VAF = 0 ie WT
+```{r}
+VAF$mean_VAF[is.nan(VAF$mean_VAF)]<-0
+```
+#Assign Mut/WT to VAFs
+```{r}  
+VAF <- VAF %>% 
+  mutate (DNMT3A = case_when(mean_VAF < 0.02 ~ "DNMT3A WT",
+                                 mean_VAF >= 0.02 ~ "DNMT3A Mut"),
+          DNMT3A = fct_relevel(DNMT3A, c("DNMT3A WT", "DNMT3A Mut")))
+
+VAF %>% count(DNMT3A)
+```
+#Join VAF with True colonies
+```{r}
+Final_data <- left_join(VAF, Harvested_colonies, by = "Sort_id") %>% 
+  filter(Cell_seeded == "HSC")
+
+write_csv(Final_data, "Processed data/LEUK23_Final_data.csv")
+
+Final_data %>% count(DNMT3A)
+```

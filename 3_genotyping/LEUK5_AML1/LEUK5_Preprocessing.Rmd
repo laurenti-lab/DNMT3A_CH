@@ -1,0 +1,261 @@
+---
+title: "LEUK5_Preprocessing"
+author: "Aditi Vedi"
+date: "2023/11/24"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(ggpubr)
+library(plater)
+library(reshape2)
+```
+
+```{r}
+
+```
+
+## Read in index data
+```{r}
+Index <- read_csv("Input_data/Index_data/LEUK5_Index.csv") %>% 
+  rename(Sort_id = "plate_well") %>% 
+  select(-V405, -Time)
+
+Index %>% 
+  count(Cell_seeded)
+```
+
+```{r}
+
+```
+
+## Read in Harvested colonies file
+```{r}
+# ...and create plate map and merge in Index info
+
+file_path <- "Input_data/Phenotype_data/LEUK5_Harvested_colonies.csv"
+
+check_plater_format(file_path)
+
+plate <- read_plate(file = file_path, well_ids_column = 'Wells')
+plate$Wells <- str_remove(plate$Wells, '(?<=[A-Z])0*(?=[0-9])')
+
+Plate_map <- melt(plate, id = "Wells") %>% 
+  filter(!is.na(value)) %>%
+  mutate(Plate = as.character(variable)) %>% 
+  unite(Plate_well, Plate, Wells) %>% 
+  rename(Sort_id = value)
+
+write_csv(Plate_map, "Processed_data/Phenotype_data/LEUK5_Plate_map.csv")
+
+Harvested_colonies <- left_join(Plate_map, Index, by = "Sort_id")
+
+Harvested_colonies %>% count(Cell_seeded)
+
+```
+
+## Read in FACS data
+```{r}
+FACS <- read_csv("Input_data/Phenotype_data/20230926_LEUK5_AML1_TrueFalse.csv", trim_ws = TRUE) %>% 
+  filter(TrueFalse == "TRUE") %>% 
+  rename(Sort_id = "Plate_well")
+```
+```{r}
+# Join FACS with sort_id from plate map
+
+True_colonies <- left_join(FACS, Harvested_colonies, by = "Sort_id") %>% 
+  filter(TrueFalse == "TRUE")
+
+True_colonies %>% count(Cell_seeded)
+
+write_csv(True_colonies, "Processed_data/Phenotype_data/LEUK5_True_colonies.csv")
+```
+## Read in current seq VAF data
+
+
+### Run statistics
+```{r}
+Run <- read_csv("Input_data/Genotype_data/run_statistics.csv", trim_ws = TRUE) %>% 
+  filter(str_detect(sample_name, "contig") == FALSE)
+```
+
+```{r}
+# Keeping only samples from our run
+
+Run <- Run %>% 
+  filter(str_detect(sample_name, "LEUK")) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, `2:25456900-25457400`)
+```
+### mutect
+```{r}
+mutect <- read_csv("Input_data/Genotype_data/total_mutect.csv", trim_ws = TRUE) %>% 
+  mutate(Start = as.numeric(Start))
+```
+```{r}
+# Keeping only samples from our run
+# looking at DNMT3A R882H (Start/End position 25457242 as per Human assembly: Feb 2009(GRCh7/hg19))
+
+mutect <- mutect %>% 
+  filter(str_detect(sample_name, "LEUK")) %>% 
+  filter(Start == 25457242) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, VAF) %>% 
+  rename(VAF.mutect = VAF)
+```
+
+### varscan
+```{r}
+Varscan <- read_csv("Input_data/Genotype_data/Varscan_newanalysis_242.csv", trim_ws = TRUE) %>% 
+  mutate(POS = as.numeric(POS),
+         FREQ = parse_number(FREQ), FREQ = as.numeric(FREQ), FREQ = FREQ/100) %>% 
+  separate(filename, into = c("sample_name", NA), sep = "/")
+```
+```{r}
+# Keeping only samples from our run
+
+Varscan <- Varscan %>% 
+  filter(str_detect(sample_name, "LEUK")) %>% 
+  filter(POS == 25457242) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, FREQ)%>% 
+  rename(VAF.varscan = FREQ)
+```
+### platypus
+```{r}
+Platypus <- read_csv("Input_data/Genotype_data/total_platypus.csv", trim_ws = TRUE) %>% 
+  mutate(Start = as.numeric(Start))
+```
+```{r}
+
+```
+
+```{r}
+# Keeping only samples from our run
+
+Platypus <- Platypus %>% 
+  filter(str_detect(sample_name, "LEUK")) %>% 
+  filter(Start == 25457242) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, VAF)%>% 
+  rename(VAF.platypus = VAF)
+
+# assuring the field is numeric
+Platypus$VAF.platypus <- as.numeric(Platypus$VAF.platypus)
+```
+```{r}
+
+```
+
+```{r}
+# Combine all above data into single file containing depth from run stats and VAF from 3 variant callers
+
+VAF <- left_join(Run, Varscan, by = "sample_name")
+VAF <- left_join(VAF, mutect, by = "sample_name")
+VAF <- left_join(VAF, Platypus, by = "sample_name")
+```
+```{r}
+
+```
+
+### prepare VAF data before joining it with FACS/RG/Sort data
+```{r}
+VAF <- VAF %>% 
+  separate(sample_name, into = c(NA, "plate", "well", NA, "Snumber"), sep = "-") %>% 
+  mutate(plate = parse_number(plate)) %>% 
+  separate(Snumber, into = c(NA, "SNumber", NA), sep = "_") %>% 
+  unite(Sort_id, plate, well, sep = "_")%>% 
+  distinct(Sort_id, .keep_all = TRUE) %>% 
+  rename(Depth = `2:25456900-25457400`)
+
+write_csv(VAF, "Processed_data/Genotype_data/LEUK5_VAF_data.csv")
+```
+
+```{r}
+
+```
+
+```{r}
+VAF <- VAF %>% 
+  arrange(Depth)
+```
+```{r}
+
+```
+
+```{r}
+# filter out the colonies with low depth. i.e. keep colonies above the lowest depth that has at least 2 variant callers that call a colony mutant
+
+Temp_VAF <- VAF[ rowSums(VAF[c('VAF.varscan',	'VAF.mutect',	'VAF.platypus')] > 0.02 , na.rm=TRUE ) >= 2,]
+Depth_cutoff <- min(Temp_VAF$Depth)
+
+VAF <- VAF %>% 
+  filter(Depth>=Depth_cutoff)
+```
+
+```{r}
+# Calculate mean VAF based on the 3 variant callers
+
+VAF <- VAF %>% 
+    rowwise() %>%
+    mutate(mean_VAF = mean(c(VAF.varscan, VAF.mutect, VAF.platypus), na.rm = TRUE)) %>%
+    ungroup()
+```
+
+
+```{r}
+# If any of the VAFs has been returned as NA (ie all variant callers were NA) then give it VAF = 0 ie WT
+
+VAF$mean_VAF[is.nan(VAF$mean_VAF)]<-0
+```
+### Assign Mut/WT to VAFs
+```{r}
+VAF <- VAF %>% 
+  mutate (DNMT3A = case_when(mean_VAF < 0.02 ~ "WT",
+                             mean_VAF >= 0.02 ~ "MUT"),
+                             DNMT3A = fct_relevel(DNMT3A, c("WT", "MUT"))
+         )
+
+VAF %>% count(DNMT3A)
+```
+```{r}
+
+```
+
+## Join VAF with True colonies
+```{r}
+Final_data <- left_join(VAF, True_colonies, by = "Sort_id") %>% 
+  filter(!is.na(fcs.name))
+
+Final_data %>% count(DNMT3A)
+```
+
+```{r}
+dim(Final_data)
+```
+
+```{r}
+
+```
+
+```{r}
+filename_prefix <- format(as.Date(Sys.time()), "%Y%m%d")
+
+outname <- paste0("Processed_data/",filename_prefix,"_LEUK5_Final_data.csv")
+
+write_csv( Final_data,  outname)
+
+print(outname)
+```
+
+```{r}
+
+```
+
+```{r}
+sessionInfo()
+```
+
+```{r}
+
+```

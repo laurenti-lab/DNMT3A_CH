@@ -1,0 +1,195 @@
+---
+title: "LEUK11"
+author: "Aditi Vedi"
+date: "23/12/2023"
+output: html_document
+---
+
+#**********Install packages************
+```{r}
+library(tidyverse)
+library(ggpubr)
+
+setwd("~/Desktop/Research/Papers/LEUK Paper/Bioinformatics/GitHub/LEUK11_ARCH2/")
+```
+
+# LEUK11 Index data --------------------------------------------------------------
+```{r}
+Index <- read_csv("Raw data/Index data/161 Mem1 190919.csv") 
+
+Index <- Index %>% 
+  mutate(Plate = 1, Cell_seeded = "HSC") %>% 
+  unite(Sort_id, Plate, Well) 
+
+# Shorten names of all columns using string replace 
+colnames(Index) <- str_replace_all(string = colnames(Index), pattern = "All Events", replacement = "")
+colnames(Index) <- str_replace_all(string = colnames(Index), pattern = "Median", replacement = "")
+
+colnames(Index[2:15]) <- colnames(Index[2:15]) %>% 
+  word(2)
+colnames(Index) <- str_replace(colnames(Index), pattern = "-", replacement = "_")
+colnames(Index) <- str_replace(colnames(Index), pattern = "/", replacement = "_")
+
+Index %>% 
+  count(Cell_seeded)
+
+write_csv(Index, "Raw data/Index data/LEUK11_Index.csv")
+```
+
+#Read in all Index data
+```{r}
+Index <- read_csv("Raw data/Index data/LEUK11_Index.csv")
+```
+# LEUK11 Phenotyping data ---------------------------------------------------------------
+
+#Read in plate layout to get sort_id esp for upside down plate
+```{r}
+Plate_map <- read_csv("Raw data/Phenotype data/LEUK11_D28_Plate map.csv") %>% 
+  unite(Sort_id, Plate, Well, sep = "_") %>% 
+  filter(Sample == "ARCH")
+
+write_csv(Plate_map, "Raw data/Phenotype data/LEUK11_Plate_map.csv")
+
+Harvested_colonies <- left_join(Plate_map, Index, by = "Sort_id") %>% 
+  mutate(Plate_well = Sort_id)
+
+Harvested_colonies %>% count(Cell_seeded)
+```
+
+# Import FACS data to match with VAF
+```{r}
+FACS <- read_csv("Raw data/Phenotype data/LEUK11_Plate1_ARCH.csv") %>% 
+  select(-...14) %>% 
+  separate(...1, into = c(NA, NA, "Well", NA, NA), sep = "_") %>% 
+  filter(!is.na(Well)) %>% 
+  mutate(Plate = 1) %>% 
+  unite(Plate_well, Plate, Well)
+```
+#Join FACS with sort_id from plate map
+```{r}
+True_colonies <- left_join(FACS, Harvested_colonies, by = "Plate_well") 
+
+True_colonies %>% count(Cell_seeded)
+
+write_csv(True_colonies, "Raw data/Phenotype data/LEUK11_True_colonies.csv")
+```
+# Import current seq VAF data ---------------------------------------------
+```{r}
+Run <- read_csv("Raw data/Genotype data/run_statistics.csv") %>% 
+  filter(str_detect(sample_name, "Aditi")) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, `2:25456900-25457400`) 
+```
+#Varscan
+
+```{r}
+Varscan <- read_csv("Raw data/Genotype data/total_varscan.csv") %>% 
+  mutate(Start = as.numeric(Start))
+```
+# Filter out only our samples from run, for DNMT3A R882 (ie Start == 25457243)
+```{r}
+Varscan <- Varscan %>% 
+  filter(str_detect(sample_name, "Aditi")) %>% 
+  filter(Start == 25457242) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, VAF)%>% 
+  rename(VAF.varscan = VAF)
+```  
+#Mutect
+```{r}
+Mutect <- read_csv("Raw data/Genotype data/total_mutect.csv") %>% 
+  mutate(Start = as.numeric(Start))
+```
+# Filter out only our samples from run, for DNMT3A R882 (ie Start == 25457243)
+```{r}
+Mutect <- Mutect %>% 
+  filter(str_detect(sample_name, "Aditi")) %>% 
+  filter(Start == 25457242) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, VAF) %>% 
+  rename(VAF.mutect = VAF)
+```
+#Platypus
+```{r}
+Platypus <- read_csv("Raw data/Genotype data/total_platypus.csv") %>% 
+  mutate(Start = as.numeric(Start))
+```
+# Filter out only our samples from run, for DNMT3A R882 (ie Start == 25457243)
+```{r}
+Platypus <- Platypus %>% 
+  filter(str_detect(sample_name, "Aditi")) %>% 
+  filter(Start == 25457242) %>% 
+  distinct(sample_name, .keep_all = TRUE) %>% 
+  select(sample_name, VAF)%>% 
+  rename(VAF.platypus = VAF)
+```
+
+# Combine all above data into single file containing depth from run stats and VAF from 3 variant callers
+```{r}
+VAF <- left_join(Run, Varscan, by = "sample_name")
+VAF <- left_join(VAF, Mutect, by = "sample_name")
+VAF <- left_join(VAF, Platypus, by = "sample_name")
+
+VAF <- VAF %>% 
+  separate(sample_name, into = c(NA, "sample_number", "Snumber"), sep = "_") %>% 
+  mutate(sample_number = as.numeric(sample_number))
+
+Sample_info <- read_csv("Raw data/Genotype data/LEUK11_D28_ARCH_sample_info.csv") %>% 
+  mutate(Plate = parse_number(Plate)) %>% 
+  unite(Sort_id, Plate, well)
+
+VAF <- left_join(Sample_info, VAF, by = "sample_number")%>% 
+  rename(Well = sample_name..0..If.empty, 
+         Depth = '2:25456900-25457400') %>% 
+  mutate(VAF.platypus = as.numeric(VAF.platypus), VAF.mutect = as.numeric(VAF.mutect))
+
+write_csv(VAF, "Raw data/Genotype data/VAF.csv")
+```
+
+#Join VAFs from both runs with Sample id
+```{r}
+VAF <- VAF %>% 
+  arrange(Depth)
+```
+
+#filter out the colonies with low depth. ie filter  colonies above the lowest depth that has at least 2 variant callers that call a colony mutant
+```{r}
+Temp_VAF <- VAF[ rowSums(VAF[c('VAF.varscan',	'VAF.mutect',	'VAF.platypus')] > 0.00 , na.rm=TRUE ) >= 2,]
+Depth_cutoff <- min(Temp_VAF$Depth)
+
+VAF <- VAF %>% 
+  filter(Depth>=Depth_cutoff)
+```
+#Calculate mean VAF based on3 3 variant callers
+```{r}
+VAF <- VAF %>% 
+    rowwise() %>%
+  mutate(mean_VAF = mean(c(VAF.varscan, VAF.mutect, VAF.platypus), na.rm = TRUE)) %>%
+  ungroup()
+```
+
+#If any of the VAFs has been returned as NA (ie all variant callers were NA) then give it VAF = 0 ie WT
+```{r}
+VAF$mean_VAF[is.nan(VAF$mean_VAF)]<-0
+```
+#Assign Mut/WT to VAFs
+```{r}  
+VAF <- VAF %>% 
+  mutate (DNMT3A = case_when(mean_VAF < 0.02 ~ "DNMT3A WT",
+                                 mean_VAF >= 0.02 ~ "DNMT3A Mut"),
+          DNMT3A = fct_relevel(DNMT3A, c("DNMT3A WT", "DNMT3A Mut")))
+
+VAF %>% count(DNMT3A)
+
+write_csv(VAF, "Raw data/Genotype data/LEUK11_final_VAF.csv")
+```
+#Join VAF with True colonies
+```{r}
+Final_data <- left_join(VAF, True_colonies, by = "Sort_id") 
+
+write_csv(Final_data, "Processed data/LEUK11_Final_data.csv")
+
+Final_data %>% count(DNMT3A)
+```
+
+
