@@ -47,7 +47,7 @@ The **datasets** associated with this work are available at:
 
 1. scRNA-seq: GEO [GSE298242](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE298242) 
 
-2. bulk RNA-seq: GEO [GSE306029](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE306029)
+2. bulk RNA-seq: GEO [GSE346005](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE346005)
 
 3. variant calling results for genotyping: [supplementary table S2](https://www.biorxiv.org/content/biorxiv/early/2025/10/08/2025.10.08.679225/DC1/embed/media-1.xlsx?download=true)
 
