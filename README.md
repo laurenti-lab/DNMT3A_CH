@@ -16,6 +16,7 @@ The **codes** are organised into folders that correspond to the analyses present
         - 02 clustering, label transfer, and pseudotime
         - 03 differential gene expression, GSEA, GSVA
         - 04 Cell Chat
+        - 05 Annotated Heatmap of DEGs in mature neutrophil cluster 
 
 2. bulk RNA-seq analysis of *in-vivo* myeloid differentiation
     * Author: G. Mantica
