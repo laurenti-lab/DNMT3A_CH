@@ -1,0 +1,692 @@
+# =============================================================================
+#03.04_heatmap_DEGs_matureneuts_revisions
+# =============================================================================
+
+suppressPackageStartupMessages({library(tidyverse)
+                                library(gridExtra)
+                                library(RColorBrewer)
+                                library(anndata)
+                                library(ggridges)
+                                library(circlize)
+                                library(ComplexHeatmap)
+                                library(Seurat)})
+
+cat("R version:", R.version$version.string, "\n")
+
+installed.packages() %>%
+  as_tibble() %>%
+  select(Package, Version) %>%
+  filter(Package %in% c('tidyverse','RColorBrewer', 'anndata', 'ggridges', 'Seurat','circlize','ComplexHeatmap')) %>%
+  print(row.names = FALSE)
+
+
+# -----------------------------------------------------------------------------
+#' ### fxs
+
+options(repr.matrix.max.cols=22)
+options(repr.matrix.max.rows = 200)
+
+fig <- function(width, height) {
+    options(repr.plot.width = width, repr.plot.height = height)
+}
+
+# -----------------------------------------------------------------------------
+#' ## 2026/08/12 Env info
+
+prefix <- format(Sys.Date(), "%Y%m%d")
+
+# -----------------------------------------------------------------------------
+#' ## prepare data
+
+# -----------------------------------------------------------------------------
+
+#' #### import anndata
+
+ann <- anndata::read_h5ad('/20250814_CHIP27_after_lognorm_BBKNN_Kwok_Zeng_cellcycle_clustering1115_1120_pseudotime.h5ad')
+
+#' #### create seu object
+
+mat  <- t(as.matrix(ann$layers[["lognorm"]]))
+meta <- as.data.frame(ann$obs)
+
+colnames(mat) <- rownames(meta)
+rownames(mat) <- rownames(as.data.frame(ann$var))
+
+mat <- t(as(ann$layers[["lognorm"]], "CsparseMatrix"))   # stays sparse; genes x cells
+rownames(mat) <- rownames(as.data.frame(ann$var))        # gene names  (var index)
+colnames(mat) <- rownames(as.data.frame(ann$obs))        # cell barcodes (obs index)
+
+meta <- as.data.frame(ann$obs)
+
+seu <- SetAssayData(seu, layer = "data", new.data = GetAssayData(seu, layer = "counts"))
+
+seu_neut <- subset(
+  seu,
+  subset = cluster_1120 %in% c('0', '1_7', '2_5', '6')
+)
+
+seu@meta.data$treatment %>% unique()
+
+seu_neut_CTR <- subset(
+  seu_neut,
+  subset = treatment== 'CTR'
+)
+
+seu_neut_IFN <- subset(
+  seu_neut,
+  subset = treatment== 'IFNy'
+)
+
+saveRDS(seu_neut, paste0(datadir,'/objects/', prefix, '_seu_neut_all.rds'), compress = FALSE)
+
+saveRDS(seu_neut_CTR, paste0(datadir,'/objects/', prefix, '_seu_neut_CTR.rds'), compress = FALSE)
+
+saveRDS(seu_neut_IFN, paste0(datadir,'/objects/', prefix, '_seu_neut_IFN.rds'), compress = FALSE)
+
+# -----------------------------------------------------------------------------
+#' ###breakpoint
+
+seu_neut<- readRDS(paste0(datadir,'/objects/20260811_seu_neut_all.rds'))
+
+seu_neut_CTR<- readRDS(paste0(datadir,'/objects/20260811_seu_neut_CTR.rds'))
+
+seu_neut_IFN<- readRDS(paste0(datadir,'/objects/20260811_seu_neut_IFN.rds'))
+
+# -----------------------------------------------------------------------------
+#' ### DEGs
+
+#' #### import DEGs
+
+model_date <- '20241127'
+
+clusters <- c('0', '1_7', '2_5', '3_4', '6', '8') #might not include 8
+
+#' ##### import DGE list model1: untreated only; design = ~0 + mut + sort ; contrast= 1'*groupMUT -1'*groupWT
+
+treatment <- 'untreated'
+model <- 'model1'
+contrast<-'groupMUT-groupWT'
+
+for (cluster in clusters) {
+    data <- read.delim(paste0(datadir, '/tables/edgeR/', model_date, '_', cluster, '_',
+                              model, '_', treatment, '_', contrast, '_DGE_results.txt'), header = TRUE, stringsAsFactors = FALSE)
+    data$treatment <- treatment
+    data$cluster <-cluster
+    data$model<- model
+    data$coeff<- contrast
+    data<-rownames_to_column(data, var = 'gene')
+    assign(paste0(treatment, '_cl', cluster), data)
+  }
+
+#' ##### import DGE list model2: treated only; design = ~0 + mut ; contrast= 1'*groupMUT -1'*groupWT
+
+clusters_no8<- clusters[clusters != "8"] #cl8 only present in model1
+treatment <- 'treated'
+model <- 'model2'
+contrast<-'groupMUT-groupWT'
+
+for (cluster in clusters_no8) {
+    data <- read.delim(paste0(datadir, '/tables/edgeR/', model_date, '_', cluster, '_',
+                              model, '_', treatment, '_', contrast, '_DGE_results.txt'), header = TRUE, stringsAsFactors = FALSE)
+    data$treatment <- treatment
+    data$cluster <-cluster
+    data$model<- model
+    data$coeff<- contrast
+    data<-rownames_to_column(data, var = 'gene')
+    assign(paste0(treatment, '_cl', cluster), data)
+  }
+
+#' ##### import DGE list model3: all dataset; design=~0 + mut + sort + treatment + mut:treatment; contrast= 1'*groupMUT -1'*groupWT; interaction=groupMUT:treatmentIFNy; coefficient: treatment IFNy
+
+clusters_no8<- clusters[clusters != "8"] #cl8 only present in model1
+treatment <- 'all'
+model <- 'model3'
+contrast<-c('groupMUT-groupWT','groupMUT-treatmentIFNy','treatmentIFNy')
+
+for (c in contrast) {
+    for (cluster in clusters_no8) {
+        data <- read.delim(paste0(datadir, '/tables/edgeR/', model_date, '_', cluster, '_',
+                                  model, '_', treatment, '_', c, '_DGE_results.txt'), header = TRUE, stringsAsFactors = FALSE)
+        data$treatment <- treatment
+        data$cluster <-cluster
+        data$model<- model
+        data$coeff<- c
+        data<-rownames_to_column(data, var = 'gene')
+        name <- if (c %in% c('groupMUT-groupWT', 'groupMUT-treatmentIFNy')) {
+          gsub('-', '_', c)
+        } else {
+          c
+        }
+        assign(paste0(treatment,'_', name, '_cl', cluster), data)
+      }
+    }
+
+#' ##### merge data
+#' NB NO CLUSTER 8
+
+prefixes <- c('untreated','treated','all_groupMUT_groupWT','all_groupMUT_treatmentIFNy', 'all_treatmentIFNy')
+
+all_data <- list()
+
+for (p in prefixes) {
+  for (cluster in clusters_no8) {
+    data_name <- paste0(p, "_cl", cluster)
+      data <- get(data_name)
+      data$group <- paste0(data$cluster, '_', data$treatment)
+      data <- data %>%
+              mutate(group = case_when(
+                coeff == 'treatmentIFNy' ~ paste0(group, 'IFNy'),
+                coeff == 'groupMUT-treatmentIFNy' ~ paste0(group, 'MUTIFNy'),
+                TRUE ~ group
+              ))
+      #data <- rownames_to_column(data, var = 'gene')
+      all_data[[data_name]] <- data
+  }
+}
+
+DEGs <- bind_rows(all_data)
+
+#' ##### filter only for signficant DEGs
+
+FDR_thres = 0.05
+logFC_thres = 1
+
+DEGs_sig <- DEGs %>%
+            filter(FDR < FDR_thres, abs(logFC) > logFC_thres) %>%
+            group_by(group, cluster) %>%
+            arrange(desc(abs(logFC)), .by_group=TRUE) %>%
+            select(-treatment) %>%
+            mutate(treatment= str_split(group, "_(?=[^_]+$)", n = 2)[[1]][2]) %>% #to make plotting easier after
+            mutate(treatment=factor(treatment, levels= c('untreated', 'treated', 'all', 'allMUTIFNy', 'allIFNy')))%>% #here so that I can do this for all groups easily
+            mutate(cluster=factor(cluster, levels=c('2_5','1_7','0','6','3_4'))) %>%
+            mutate(logFC_capped = ifelse(logFC >= 5, 5, ifelse(logFC <= -5, -5, logFC)))
+
+# fig(5,5)
+# hist(DEGs_sig$logFC)
+
+#' #### extract DEGs lists of interest for plotting
+
+#' ##### mature neuts
+
+UNTX_6 <- DEGs_sig %>% filter(treatment=='untreated', cluster=='6') %>% pull('gene')
+
+UNTX_6_UP <- DEGs_sig %>% filter(treatment=='untreated', cluster=='6') %>% filter(logFC>1) %>% pull('gene')
+UNTX_6_DOWN <- DEGs_sig %>% filter(treatment=='untreated', cluster=='6') %>% filter(logFC< -1) %>% pull('gene')
+
+TX_6<- DEGs_sig%>% filter(treatment =='treated', cluster=='6') %>% pull(gene)%>% unique()
+
+TX_6_UP <- DEGs_sig %>% filter(treatment=='treated', cluster=='6') %>% filter(logFC>1) %>% pull('gene')
+TX_6_DOWN <- DEGs_sig %>% filter(treatment=='treated', cluster=='6') %>% filter(logFC< -1) %>% pull('gene')
+
+# -----------------------------------------------------------------------------
+#' ### gene annotations
+
+#' #### hallmarks
+
+hallmark_genesets_path <- "~/../references/h.all.v2023.2.Hs.symbols.gmt"
+
+hallmarks <- fgsea::gmtPathways(hallmark_genesets_path)
+
+#' #### import genes from Hackert et al
+#' get to their "core inflammatory programme" as performed in the paper
+
+
+hackert_allgenes <- read_delim('~/../references/CHIP27/Hackert2023_neut_inflamm.txt', delim="\t")
+
+hackert_allgenes <- hackert_allgenes %>% arrange(fisher_adjusted)
+
+#' the table was already ranked
+
+hackert_top500<- hackert_allgenes %>% slice_head(n = 500)
+
+hackert_selected <- hackert_top500  %>%
+                    filter(abs(mean_lfc) >=0.5)
+
+hackert_selected_up <- hackert_selected %>%
+                       filter(mean_lfc > 0)
+
+hackert_selected_down <- hackert_selected %>%
+                       filter(mean_lfc < 0)
+
+#' **extract gene lists:**
+
+hackert_selected_up$symbol
+
+hallmarks$HACKERT_NEUTS_INFLAMMATION_UP <- hackert_selected_up$symbol
+
+#' #### import genes from Van Galen et al (AML)
+
+AML_VanGalen_monocytes <- c(
+  "ACAP2", "ACTG1", "ADA2", "ADAR", "AHNAK", "AHR", "AIF1", "ALDH2", "ALDOA",
+  "ANKRD28", "ANXA1", "AOAH", "APLP2", "APOBEC3A", "APOL6", "ARHGAP30",
+  "ARID4A", "ARPC5", "ATF4", "ATP2B1-AS1", "ATP5G2", "ATP8B4", "AZU1", "BCL6",
+  "BIN2", "BTG1", "C5orf24", "C6orf48", "CALR", "CAPZB", "CAT", "CCNL1",
+  "CCPG1", "CD163", "CD300E", "CD36", "CD4", "CD47", "CD74", "CDC42SE1",
+  "CDKN2D", "CFD", "CHD2", "CIRBP", "CITED2", "CLEC12A", "CLU", "CNBP",
+  "CNN2", "CNOT2", "COX4I1", "CPVL", "CR1", "CREBRF", "CRIP1", "CST3",
+  "CTSB", "CTSD", "CTSG", "CTSS", "CX3CR1", "CXCL8", "CXXC5", "CYBA", "DBET",
+  "DDIT3", "DDX17", "DDX5", "DMXL2", "DNASE2", "DOK2", "DSE", "DUSP1",
+  "DUSP22", "DUSP6", "EEF1A1", "EEF1B2", "EEF1G", "EEF2", "EFHD2", "EGR1",
+  "EIF1", "EIF3E", "EIF3F", "EIF3K", "EIF4A2", "ELANE", "ELF1", "EMB",
+  "EMP3", "EPSTI1", "EVI2A", "F13A1", "FAM46A", "FAU", "FCGR2A", "FCGR3A",
+  "FCGRT", "FGD2", "FGL2", "FGR", "FKBP5", "FLT3", "FOS", "FTH1P3", "FTL",
+  "FUT4", "FYB1", "GAPDH", "GAS5", "GBP1", "GBP2", "GBP4", "GGA1", "GGNBP2",
+  "GIMAP4", "GIMAP7", "GPX1", "GRB2", "GRN", "GSTK1", "GTF3A", "HCK",
+  "HCLS1", "HINT1", "HLA-A", "HLA-B", "HLA-C", "HLA-DPA1", "HLA-DPB1",
+  "HLA-DRA", "HLA-DRB1", "HLA-DRB5", "HLA-DRB6", "HLA-E", "HLA-F", "HMGN3",
+  "HMOX1", "HOXA9", "HSD17B11", "HSPA5", "IER2", "IFI16", "IFI30", "IFI44L",
+  "IFI6", "IFITM3", "IL10RA", "IRF2BP2", "ISG15", "IST1", "ITGA4", "ITGAX",
+  "ITGB2", "ITM2B", "JAML", "JUN", "JUNB", "KLF2", "KLF6", "KLHL24",
+  "LGALS2", "LGALS3", "LMNA", "LOC100506675", "LOC100996385", "LPAR6",
+  "LRP1", "LRRC75A-AS1", "LST1", "LUC7L3", "LY6E", "LYST", "MAFB", "MALAT1",
+  "MARCH1", "MARCKS", "MBNL1", "METTL7A", "MFSD1", "MGST1", "MRC1",
+  "MRPL33", "MS4A10", "MS4A6A", "MS4A7", "MSRB3", "MTSS1", "MX1", "MX2",
+  "N4BP2L2", "NCF1", "NCF2", "NCOA4", "NEAT1", "NFKBIA", "NFKBIZ",
+  "NOTCH2NL", "NPC2", "NPM1", "NUDT16", "NUFIP2", "OAS1", "PABPC1", "PAK2",
+  "PARP14", "PARP9", "PCNP", "PDK4", "PFDN5", "PFN1", "PLAC8", "PLD3",
+  "PLEK", "PLEKHO1", "PLIN2", "PNISR", "PNRC1", "POU2F2", "PPP1R15A",
+  "PRR13", "PSAP", "PTEN", "PTP4A2", "PTPN6", "PYCARD", "RAB12", "RAB13",
+  "RACK1", "RGS18", "RHOB", "RICTOR", "RIOK3", "RIPOR2", "RN7SK", "RNA5-8S",
+  "RNASET2", "RNF213", "RNU4-2", "RNU4ATAC", "RNU5F-1", "RSRP1", "RUNX3",
+  "SCIMP", "SCPEP1", "SERP1", "SERPINA1", "SESN3", "SF1", "SFPQ",
+  "SH3BGRL3", "SLC1A3", "SMAP2", "SMIM3", "SNORD79", "SP110", "SQSTM1",
+  "SREK1", "SRGN", "SRRM2", "SSH2", "STAT1", "TAGLN2", "TBK1", "TLR4",
+  "TMEM107", "TMEM70", "TNFAIP2", "TNFRSF1B", "TNFSF10", "TPT1", "TRIM38",
+  "TXNIP", "TYMP", "TYROBP", "UBA52", "UBB", "UBC", "UBE2J1", "UQCRB",
+  "VAMP8", "VMP1", "VSIR", "VTRNA1-1", "WARS", "WDR26", "XAF1", "YPEL2",
+  "ZBTB7A", "ZCCHC6", "ZFAS1", "ZFC3H1", "ZFP36", "ZFP36L1", "ZFP36L2",
+  "ZFR"
+)
+
+hallmarks$VAN_GALEN_AML_MONO <- AML_VanGalen_monocytes
+
+#' #### import genes from Alshetaiwi 2020
+#' already filtered for abs(logFC)>1 and adjusted P value < 0.05
+
+Alsh_GMDCs <- read.csv('/rds/project/rds-0p1wRpSNFIw/users/gm686/CHIP27/references/Alshetaiwi2020/20250204_aay6017_table_s3_GMDSCs_versus_neutrophils_filtered_human.csv')
+Alsh_MMDCs <- read.csv('/rds/project/rds-0p1wRpSNFIw/users/gm686/CHIP27/references/Alshetaiwi2020/20250204_aay6017_table_s4_MMDSCs_versus_monocytes_filtered_human.csv')
+Alsh_combo_MDCs<- read.csv('/rds/project/rds-0p1wRpSNFIw/users/gm686/CHIP27/references/Alshetaiwi2020/20250204_aay6017_table_s5_Combined_MDSC_signaturegenelist_filtered_human.csv')
+
+hallmarks$ALSH_GMDCs_UP <- Alsh_GMDCs %>% filter(avg_logFC>1, p_val_adj<0.05) %>% unique() %>% pull(external_gene_name)
+
+hallmarks$ALSH_GMDCs_DOWN <- Alsh_GMDCs %>% filter(avg_logFC<(-1), p_val_adj<0.05) %>% unique() %>% pull(external_gene_name)
+
+hallmarks$ALSH_MMDCs_UP <- Alsh_MMDCs %>% filter(avg_logFC>1, p_val_adj<0.05) %>% unique() %>% pull(external_gene_name)
+
+hallmarks$ALSH_MMDCs_DOWN <- Alsh_MMDCs %>% filter(avg_logFC<(-1), p_val_adj<0.05) %>% unique() %>% pull(external_gene_name)
+
+hallmarks$ALSH_COMBO_MDCs <- Alsh_combo_MDCs  %>% pull(external_gene_name) %>% unique()
+
+#' #### import genes from Montaldo et al 2022
+#' **Human**
+
+Montado <- read.csv('/rds/project/rds-0p1wRpSNFIw/users/gm686/CHIP30/ref/Montado2022_suppltab29.csv')
+
+hallmarks$MONTADO_MATURE_BM <- Montado %>% filter(Neutrophil.maturation.stage=='Mature BM neutrophils')  %>% pull(Genes)
+hallmarks$MONTADO_MATURE_PB <- Montado %>% filter(Neutrophil.maturation.stage=='Mature PB neutrophils')  %>% pull(Genes)
+
+#' #### import genes from Kirchberger 2024
+
+
+Kirch <- read.csv('/rds/project/rds-0p1wRpSNFIw/users/gm686/CHIP30/ref/20250518_Kirchberger2024_pansignature_human_GM.csv')
+
+hallmarks$KIRK_M3 <- Kirch %>% filter(gene_module=='M3') %>% pull(genes)
+
+#' #### MDSCs genes from Gabrilovic and Pettinella
+
+hallmarks$GABRILOVIC<- c('ARG1', 'NOS2', 'CD274', 'LOX1', 'IDO1', 'VEGF', 'S100A8', 'S100A9', 'CD300LD')
+
+hallmarks$PETTINELLA<- c('CD52','CD84','PTGER2')
+
+#' #### Gene ontology C5 lists
+#' from: MSigDB C5 GO:BP, version 7.0
+
+neut_GO_path <- "~/../references/neutrophil_GOBP_MSigDB_v7.0.gmt"
+
+neut_GO <- fgsea::gmtPathways(neut_GO_path)
+
+neut_immune_GO_path <- "~/../references/neutrophil_immune_GOBP_MSigDB_v7.0.gmt"
+
+neut_immune_GO <- fgsea::gmtPathways(neut_immune_GO_path)
+
+metab_GO_path <- "~/../references/cholesterol_glycolysis_hypoxia_GOBP_v7.0.gmt"
+
+metab_GO <- fgsea::gmtPathways(metab_GO_path)
+
+#' #### collate list of annotations of interest and create a dictionary
+#' to feed to complex heatmaps
+
+# all_pathways <- c(hallmarks, neut_GO)
+
+# #NB these are not only UP genes, but gene ontologies "involved in regulation of"
+
+# anno <- list(
+#   Apoptosis    = c("HALLMARK_APOPTOSIS", "HALLMARK_DNA_REPAIR", "HALLMARK_P53_PATHWAY","GO_NEUTROPHIL_APOPTOTIC_PROCESS"),
+#   Degranulation_activation = c("GO_POSITIVE_REGULATION_OF_LEUKOCYTE_DEGRANULATION", "GO_POSITIVE_REGULATION_OF_NEUTROPHIL_ACTIVATION", "GO_POSITIVE_REGULATION_OF_RESPIRATORY_BURST",
+#     "GO_REGULATION_OF_LEUKOCYTE_DEGRANULATION","GO_REGULATION_OF_NEUTROPHIL_ACTIVATION","GO_REGULATION_OF_NEUTROPHIL_DEGRANULATION",
+#     "GO_REGULATION_OF_RESPIRATORY_BURST","GO_RESPIRATORY_BURST","GO_RESPIRATORY_BURST_INVOLVED_IN_DEFENSE_RESPONSE"),
+#   Inflammation = c("HALLMARK_IL2_STAT5_SIGNALING", "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+#                    "HALLMARK_INFLAMMATORY_RESPONSE", "HALLMARK_INTERFERON_ALPHA_RESPONSE",
+#                    "HALLMARK_INTERFERON_GAMMA_RESPONSE", "HALLMARK_KRAS_SIGNALING_UP",
+#                    "HALLMARK_PEROXISOME", "HALLMARK_PI3K_AKT_MTOR_SIGNALING",
+#                    "HALLMARK_PROTEIN_SECRETION", "HALLMARK_REACTIVE_OXYGEN_SPECIES_PATHWAY",
+#                    "HALLMARK_SPERMATOGENESIS", "HALLMARK_TGF_BETA_SIGNALING","GO_RESPIRATORY_BURST_INVOLVED_IN_INFLAMMATORY_RESPONSE",
+#                    "HALLMARK_TNFA_SIGNALING_VIA_NFKB", "HACKERT_NEUTS_INFLAMMATION_UP","HALLMARK_COMPLEMENT"),
+#   Metabolism   = c("HALLMARK_BILE_ACID_METABOLISM", "HALLMARK_CHOLESTEROL_HOMEOSTASIS",
+#                    "HALLMARK_FATTY_ACID_METABOLISM", "HALLMARK_GLYCOLYSIS",
+#                    "HALLMARK_HYPOXIA", "HALLMARK_OXIDATIVE_PHOSPHORYLATION"),
+#   MDSCs        = c("VAN_GALEN_AML_MONO", "ALSH_GMDCs_UP", "ALSH_GMDCs_DOWN", "ALSH_MMDCs_UP", "ALSH_MMDCs_DOWN", "ALSH_COMBO_MDCs", "GABRILOVIC","PETTINELLA"),
+#   Migration = c("GO_GRANULOCYTE_MIGRATION","GO_MYELOID_LEUKOCYTE_MIGRATION",
+#                 "GO_NEUTROPHIL_EXTRAVASATION","GO_NEUTROPHIL_MIGRATION","GO_POSITIVE_REGULATION_OF_GRANULOCYTE_CHEMOTAXIS",
+#                 "GO_POSITIVE_REGULATION_OF_NEUTROPHIL_MIGRATION", "GO_REGULATION_OF_GRANULOCYTE_CHEMOTAXIS", "GO_REGULATION_OF_NEUTROPHIL_MIGRATION"),
+#   Phago_killing = c("GO_NEUTROPHIL_MEDIATED_CYTOTOXICITY","GO_NEUTROPHIL_MEDIATED_KILLING_OF_GRAM_NEGATIVE_BACTERIUM", "GO_REGULATION_OF_FC_GAMMA_RECEPTOR_SIGNALING_PATHWAY_INVOLVED_IN_PHAGOCYTOSIS",
+#     "GO_NEUTROPHIL_MEDIATED_KILLING_OF_SYMBIONT_CELL","GO_PHAGOCYTOSIS", "GO_PHAGOCYTOSIS_RECOGNITION", "GO_POSITIVE_REGULATION_OF_FC_GAMMA_RECEPTOR_SIGNALING_PATHWAY_INVOLVED_IN_PHAGOCYTOSIS",
+#     "GO_POSITIVE_REGULATION_OF_PHAGOCYTOSIS","GO_POSITIVE_REGULATION_OF_PHAGOCYTOSIS_ENGULFMENT",
+#     "GO_REGULATION_OF_NEUTROPHIL_MEDIATED_CYTOTOXICITY","GO_REGULATION_OF_PHAGOCYTOSIS")
+#   )
+
+all_pathways <- c(hallmarks, neut_immune_GO, metab_GO)
+
+# all_pathways$TX_6_HIGHEXP <- TX_6_HIGHEXP
+# all_pathways$TX_6_LOWEXP <- TX_6_LOWEXP
+
+# all_pathways$UNTX_6_HIGHEXP <- UNTX_6_HIGHEXP
+# all_pathways$UNTX_6_LOWEXP <- UNTX_6_LOWEXP
+
+
+
+anno <- list(
+  Apoptosis    = c("HALLMARK_APOPTOSIS", "HALLMARK_DNA_REPAIR", "HALLMARK_P53_PATHWAY","GO_NEUTROPHIL_APOPTOTIC_PROCESS",
+                   "GO_MYELOID_CELL_APOPTOTIC_PROCESS", "GO_INTRINSIC_APOPTOTIC_SIGNALING_PATHWAY_IN_RESPONSE_TO_HYPOXIA"),
+  Degranulation_activation = c("GO_POSITIVE_REGULATION_OF_LEUKOCYTE_DEGRANULATION", "GO_POSITIVE_REGULATION_OF_NEUTROPHIL_ACTIVATION", "GO_POSITIVE_REGULATION_OF_RESPIRATORY_BURST",
+    "GO_REGULATION_OF_LEUKOCYTE_DEGRANULATION","GO_REGULATION_OF_NEUTROPHIL_ACTIVATION","GO_REGULATION_OF_NEUTROPHIL_DEGRANULATION",
+    "GO_REGULATION_OF_RESPIRATORY_BURST","GO_RESPIRATORY_BURST","GO_RESPIRATORY_BURST_INVOLVED_IN_DEFENSE_RESPONSE","GO_ACTIVATION_OF_INNATE_IMMUNE_RESPONSE",
+  "GO_ANTIFUNGAL_INNATE_IMMUNE_RESPONSE","GO_INNATE_IMMUNE_RESPONSE","GO_INNATE_IMMUNE_RESPONSE_ACTIVATING_CELL_SURFACE_RECEPTOR_SIGNALING_PATHWAY",
+  "GO_INNATE_IMMUNE_RESPONSE_IN_MUCOSA","GO_REGULATION_OF_INNATE_IMMUNE_RESPONSE","GO_MYELOID_LEUKOCYTE_ACTIVATION",
+  "GO_MYELOID_LEUKOCYTE_CYTOKINE_PRODUCTION","GO_MYELOID_LEUKOCYTE_MEDIATED_IMMUNITY"),
+
+  Inflammation = c("HALLMARK_IL2_STAT5_SIGNALING", "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+                   "HALLMARK_INFLAMMATORY_RESPONSE", "HALLMARK_INTERFERON_ALPHA_RESPONSE",
+                   "HALLMARK_INTERFERON_GAMMA_RESPONSE",
+                   "HALLMARK_PEROXISOME", "HALLMARK_PI3K_AKT_MTOR_SIGNALING",
+                   "HALLMARK_PROTEIN_SECRETION", "HALLMARK_REACTIVE_OXYGEN_SPECIES_PATHWAY",
+                   "HALLMARK_SPERMATOGENESIS", "HALLMARK_TGF_BETA_SIGNALING","GO_RESPIRATORY_BURST_INVOLVED_IN_INFLAMMATORY_RESPONSE","GO_ACUTE_INFLAMMATORY_RESPONSE",
+  "GO_ACUTE_INFLAMMATORY_RESPONSE_TO_ANTIGENIC_STIMULUS","GO_CHRONIC_INFLAMMATORY_RESPONSE","GO_CYTOKINE_PRODUCTION_INVOLVED_IN_INFLAMMATORY_RESPONSE",
+  "GO_HISTAMINE_PRODUCTION_INVOLVED_IN_INFLAMMATORY_RESPONSE", "GO_INFLAMMATORY_RESPONSE", "GO_INFLAMMATORY_RESPONSE_TO_ANTIGENIC_STIMULUS",
+                   "GO_LEUKOCYTE_ACTIVATION_INVOLVED_IN_INFLAMMATORY_RESPONSE", "HALLMARK_TNFA_SIGNALING_VIA_NFKB", "HACKERT_NEUTS_INFLAMMATION_UP","HALLMARK_COMPLEMENT",
+                  "GO_PRODUCTION_OF_MOLECULAR_MEDIATOR_INVOLVED_IN_INFLAMMATORY_RESPONSE",
+  "GO_REGULATION_OF_ACUTE_INFLAMMATORY_RESPONSE",
+  "GO_REGULATION_OF_ACUTE_INFLAMMATORY_RESPONSE_TO_ANTIGENIC_STIMULUS",
+  "GO_REGULATION_OF_CHRONIC_INFLAMMATORY_RESPONSE",
+  "GO_REGULATION_OF_INFLAMMATORY_RESPONSE" ),
+  Metabolism   = c("HALLMARK_BILE_ACID_METABOLISM", "HALLMARK_CHOLESTEROL_HOMEOSTASIS",
+                   "HALLMARK_FATTY_ACID_METABOLISM", "HALLMARK_GLYCOLYSIS",
+                   "HALLMARK_HYPOXIA", "HALLMARK_OXIDATIVE_PHOSPHORYLATION",  "GO_STEROL_METABOLIC_PROCESS",  "GO_STEROL_HOMEOSTASIS",
+    "GO_CHOLESTEROL_CATABOLIC_PROCESS", "GO_CHOLESTEROL_EFFLUX", "GO_CHOLESTEROL_STORAGE",
+    "GO_REGULATION_OF_CHOLESTEROL_METABOLIC_PROCESS", "GO_STEROL_TRANSPORT", "GO_INTRACELLULAR_STEROL_TRANSPORT","GO_REVERSE_CHOLESTEROL_TRANSPORT",
+    "GO_GLYCOLYTIC_PROCESS", "GO_GLYCOLYTIC_PROCESS_THROUGH_FRUCTOSE_6_PHOSPHATE", "GO_GLUCOSE_CATABOLIC_PROCESS",
+    "GO_HEXOSE_CATABOLIC_PROCESS", "GO_GLUCOSE_METABOLIC_PROCESS", "GO_REGULATION_OF_GLUCOSE_METABOLIC_PROCESS",
+    "GO_PYRUVATE_METABOLIC_PROCESS", "GO_ACETYL_COA_BIOSYNTHETIC_PROCESS_FROM_PYRUVATE",
+   "GO_RESPONSE_TO_OXYGEN_LEVELS", "GO_CELLULAR_RESPONSE_TO_OXYGEN_LEVELS", "GO_HYPOXIA_INDUCIBLE_FACTOR_1ALPHA_SIGNALING_PATHWAY","GO_REGULATION_OF_CELLULAR_RESPONSE_TO_HYPOXIA",
+    "GO_NEGATIVE_REGULATION_OF_CELLULAR_RESPONSE_TO_HYPOXIA","GO_REGULATION_OF_TRANSCRIPTION_FROM_RNA_POLYMERASE_II_PROMOTER_IN_RESPONSE_TO_HYPOXIA"),
+  MDSCs        = c("VAN_GALEN_AML_MONO", "ALSH_GMDCs_UP", "ALSH_GMDCs_DOWN", "ALSH_MMDCs_UP", "ALSH_MMDCs_DOWN", "ALSH_COMBO_MDCs", "GABRILOVIC","PETTINELLA"),
+  Migration = c("GO_GRANULOCYTE_MIGRATION","GO_MYELOID_LEUKOCYTE_MIGRATION",
+                "GO_NEUTROPHIL_EXTRAVASATION","GO_NEUTROPHIL_MIGRATION","GO_POSITIVE_REGULATION_OF_GRANULOCYTE_CHEMOTAXIS","GO_LEUKOCYTE_MIGRATION_INVOLVED_IN_INFLAMMATORY_RESPONSE",
+                "GO_POSITIVE_REGULATION_OF_NEUTROPHIL_MIGRATION", "GO_REGULATION_OF_GRANULOCYTE_CHEMOTAXIS", "GO_REGULATION_OF_NEUTROPHIL_MIGRATION", "GO_MYELOID_LEUKOCYTE_MIGRATION"),
+  Phago_killing = c("GO_NEUTROPHIL_MEDIATED_CYTOTOXICITY","GO_NEUTROPHIL_MEDIATED_KILLING_OF_GRAM_NEGATIVE_BACTERIUM", "GO_REGULATION_OF_FC_GAMMA_RECEPTOR_SIGNALING_PATHWAY_INVOLVED_IN_PHAGOCYTOSIS",
+    "GO_NEUTROPHIL_MEDIATED_KILLING_OF_SYMBIONT_CELL","GO_PHAGOCYTOSIS", "GO_PHAGOCYTOSIS_RECOGNITION", "GO_POSITIVE_REGULATION_OF_FC_GAMMA_RECEPTOR_SIGNALING_PATHWAY_INVOLVED_IN_PHAGOCYTOSIS",
+    "GO_POSITIVE_REGULATION_OF_PHAGOCYTOSIS","GO_POSITIVE_REGULATION_OF_PHAGOCYTOSIS_ENGULFMENT",
+    "GO_REGULATION_OF_NEUTROPHIL_MEDIATED_CYTOTOXICITY","GO_REGULATION_OF_PHAGOCYTOSIS", "GO_REGULATION_OF_MYELOID_LEUKOCYTE_MEDIATED_IMMUNITY",
+                   "GO_RESPONSE_TO_VIRUS", "GO_RESPONSE_TO_BACTERIUM", "GO_RESPONSE_TO_MOLECULE_OF_BACTERIAL_ORIGIN",  "GO_REGULATION_OF_DEFENSE_RESPONSE_TO_BACTERIUM",
+  "GO_REGULATION_OF_DEFENSE_RESPONSE_TO_VIRUS", "GO_DETECTION_OF_MOLECULE_OF_BACTERIAL_ORIGIN","GO_CYTOPLASMIC_PATTERN_RECOGNITION_RECEPTOR_SIGNALING_PATHWAY_IN_RESPONSE_TO_VIRUS")
+    )
+
+# -----------------------------------------------------------------------------
+#' ### Binning pseudotime
+
+#' #### define bin size
+#' I picked 20, I don't think we need to go too granular, I think it's best to have enough cells per bin
+
+bin_counts <- c(20, 30, 50)
+
+obj  <- seu_neut
+pt   <- obj$dpt_pseudotime
+geno <- obj$DNMT3A_genotype
+for (nb in bin_counts) {
+     br  <- seq(min(pt), max(pt), length.out = nb + 1)
+      bin <- cut(pt, breaks = br, labels = FALSE, include.lowest = TRUE)
+    tab <- table(geno, factor(bin, levels = 1:nb))
+  print(tab)
+    }
+
+obj  <- seu_neut_CTR
+pt   <- obj$dpt_pseudotime
+geno <- obj$DNMT3A_genotype
+for (nb in bin_counts) {
+     br  <- seq(min(pt), max(pt), length.out = nb + 1)
+      bin <- cut(pt, breaks = br, labels = FALSE, include.lowest = TRUE)
+    tab <- table(geno, factor(bin, levels = 1:nb))
+  print(tab)
+    }
+
+obj  <- seu_neut_IFN
+pt   <- obj$dpt_pseudotime
+geno <- obj$DNMT3A_genotype
+for (nb in bin_counts) {
+     br  <- seq(min(pt), max(pt), length.out = nb + 1)
+      bin <- cut(pt, breaks = br, labels = FALSE, include.lowest = TRUE)
+    tab <- table(geno, factor(bin, levels = 1:nb))
+  print(tab)
+    }
+
+#' #### calculate bin breaks
+
+n_bins <- 20
+pt_all <- seu_neut$dpt_pseudotime
+breaks <- seq(min(pt_all), max(pt_all), length.out = n_bins + 1)
+bins_to_keep <- setdiff(1:n_bins, c(19, 20)) #I take off the last two that are crap, basically no cells
+
+# -----------------------------------------------------------------------------
+#' ## Heatmap - annotated mean in expressed
+
+# -----------------------------------------------------------------------------
+#' ### Mature IFN
+
+#' #### up
+
+#### def input + break as def above
+obj_name  <- 'seu_neut_IFN'
+degs_name <- 'TX_6_UP'
+
+obj<-get(obj_name)
+degs<-get(degs_name)
+
+genes <- intersect(degs, rownames(GetAssayData(obj, layer = "data")))
+z    <- GetAssayData(obj, layer = "data")[genes, , drop = FALSE]
+pt   <- obj$dpt_pseudotime
+DNMT3A <- obj$DNMT3A_genotype
+bin  <- cut(pt, breaks = breaks, labels = FALSE, include.lowest = TRUE)
+
+# same binning, but one genotype at a time
+bin_one <- function(mask) {
+  binf <- factor(bin[mask], levels = 1:n_bins)
+  ind  <- Matrix::sparseMatrix(i = seq_along(binf), j = as.integer(binf), x = 1,
+                               dims = c(length(binf), n_bins))
+  m <- as.matrix(z[, mask, drop = FALSE] %*% ind)
+  m <- sweep(m, 2, as.numeric(table(binf)), "/")
+  m[is.nan(m)] <- NA
+  m[, bins_to_keep, drop = FALSE]       
+}
+
+binned_mut <- bin_one(DNMT3A == "MUT")
+binned_wt  <- bin_one(DNMT3A == "WT")
+rm(z); gc()
+
+# 1. z-scoring based on all mut and wt so figs are visually comparable
+combined <- cbind(binned_mut, binned_wt)
+mu  <- rowMeans(combined, na.rm = TRUE)
+sdv <- apply(combined, 1, sd, na.rm = TRUE)
+sdv[sdv == 0 | is.na(sdv)] <- 1
+zscore <- function(m) {
+  zb <- (m - mu) / sdv
+  zb[!is.finite(zb)] <- 0
+  zb
+}
+zb_mut <- zscore(binned_mut)
+zb_wt  <- zscore(binned_wt)
+zb_combined <- cbind(zb_mut, zb_wt)
+
+# 2. dropping flat genes that mess with the spearman (after z scor but before clustering)
+row_sd <- apply(zb_combined, 1, sd)
+flat   <- !is.finite(row_sd) | row_sd == 0
+cat("Dropping", sum(flat), "flat/zero-variance genes:\n")
+print(rownames(zb_combined)[flat])
+
+keep_genes <- !flat
+zb_mut      <- zb_mut[keep_genes, , drop = FALSE]
+zb_wt       <- zb_wt[keep_genes, , drop = FALSE]
+zb_combined <- zb_combined[keep_genes, , drop = FALSE]
+
+#' ##### digging further in the annotation
+
+genes_in_plot <- rownames(zb_mut)       
+class_df <- as.data.frame(
+  lapply(anno, function(list_names) {
+    list_names  <- intersect(list_names, names(all_pathways))
+    group_genes <- unique(unlist(all_pathways[list_names], use.names = FALSE))
+    as.integer(genes_in_plot %in% group_genes)
+  }),
+  row.names   = genes_in_plot,
+  check.names = FALSE
+)
+
+stopifnot(identical(rownames(class_df), rownames(zb_mut)))  
+
+# considering inflammation / MDSC overlap NB this is up and down MDSC
+
+group_name <- "Phago_killing"
+
+flagged_genes <- genes_in_plot[class_df[[group_name]] == 1]
+
+# the group's sets that actually exist in all_pathways
+grp_sets <- intersect(anno[[group_name]], names(all_pathways))
+
+# (1) which genes
+cat("Group:", group_name, "-", length(flagged_genes), "genes flagged\n")
+
+# (2) map each gene -> the set(s) it came from  (long form)
+grp_long <- do.call(rbind, lapply(flagged_genes, function(g) {
+  hits <- grp_sets[sapply(grp_sets, function(s) g %in% all_pathways[[s]])]
+  if (length(hits)) data.frame(gene = g, set = hits, row.names = NULL) else NULL
+}))
+
+#export to look online quickly just to check
+membership_tbl <- do.call(rbind, lapply(names(anno), function(group_name) {
+
+  # only consider genes actually flagged in this group's column
+  flagged_genes <- genes_in_plot[class_df[[group_name]] == 1]
+  # only sets that exist in all_pathways
+  grp_sets <- intersect(anno[[group_name]], names(all_pathways))
+
+  # for each flagged gene, one row per set it belongs to
+  do.call(rbind, lapply(flagged_genes, function(g) {
+    hits <- grp_sets[sapply(grp_sets, function(s) g %in% all_pathways[[s]])]
+    if (length(hits))
+      data.frame(group = group_name, gene = g, gene_set = hits, row.names = NULL)
+    else
+      NULL
+  }))
+}))
+
+#write.csv(membership_tbl, paste0(tabdir,prefix, '_', obj_name, '_', degs_name,  "_annotation_gene_set_ID.csv"), row.names = FALSE)
+
+#' ##### here I am just annotating with DEG sig values
+
+final_genes <- rownames(zb_mut)
+
+sub <- DEGs_sig %>% filter(cluster == "6", treatment == "treated")
+
+stopifnot(!any(duplicated(sub$gene)))
+
+logcpm_vec  <- setNames(sub$logCPM, sub$gene)
+logcpm_anno <- logcpm_vec[final_genes]
+
+if (any(is.na(logcpm_anno))) {
+  warning(sum(is.na(logcpm_anno)), " gene(s) not in DEGs_sig subset: ",
+          paste(final_genes[is.na(logcpm_anno)], collapse = ", "))
+}
+
+#' ##### continuing with the plot
+
+# 3. dist with Spearman, average linkage for clust
+d  <- as.dist(1 - cor(t(zb_combined), method = "spearman"))
+hc <- hclust(d, method = "average")
+
+# 3b. Row annotation from class_df — 6 groups, each 0/1 as discrete categories
+#     (in matrix order; hc will co-reorder it with the rows — do NOT pre-sort)
+anno_colors <- list(
+  Apoptosis                = c("0" = "grey94", "1" = "#3C4650"),
+  Degranulation_activation = c("0" = "grey94", "1" = "#3C4650"),
+  Inflammation             = c("0" = "grey94", "1" = "#3C4650"),
+  Metabolism               = c("0" = "grey94", "1" = "#3C4650"),
+  MDSCs                    = c("0" = "grey94", "1" = "#3C4650"),
+  Migration                = c("0" = "grey94", "1" = "#3C4650"),
+  Phago_killing            = c("0" = "grey94", "1" = "#3C4650")
+)
+row_anno <- rowAnnotation(
+  df  = as.data.frame(lapply(class_df, as.character)),
+  col = anno_colors,
+  gp  = gpar(col = "white", lwd = 0.5),
+  annotation_name_gp   = gpar(fontsize = 11),
+  annotation_name_side = "top",
+  annotation_name_rot  = 90,
+  simple_anno_size     = unit(4, "mm"),
+  show_legend          = FALSE
+)
+
+# 3c. Expression annotations: % expressing (colored square) + mean-when-expressed (bar)
+# define the color function ONCE
+
+pct_col_fun <- colorRamp2(
+  c(0, 2, 5, 10, 20, 40, 80),
+  c("#F7F7F7", "#E4E9EC", "#CDD6DB", "#7A94A6", "#4E6B80","#3C4650", "#2A323A")
+)
+
+# build the annotation from that SAME function
+expr_anno <- rowAnnotation(
+  `logCPM` = anno_barplot(logcpm_anno, gp = gpar(fill = "#3C4650", col = NA), border = TRUE),
+  annotation_name_gp  = gpar(fontsize = 11),
+  annotation_name_rot = 90,
+  annotation_name_side = "top"
+)
+
+# 4. Heatmap
+pal     <- rev(brewer.pal(11, "RdYlBu"))
+col_fun <- colorRamp2(seq(-2, 2, length.out = 11), pal)
+
+h_mut <- Heatmap(zb_mut, col = col_fun,
+                 cluster_rows = hc, cluster_columns = FALSE,
+                 show_column_names = FALSE, name = "z-score",
+                 row_dend_width = unit(15, "mm"),
+                 show_row_names = TRUE,
+                 row_names_gp   = gpar(fontsize = 12),
+                 row_names_side = "right",
+                 column_title = "MUT - pseudotime")
+
+h_wt  <- Heatmap(zb_wt, col = col_fun,
+                 cluster_rows = hc, cluster_columns = FALSE,
+                 show_column_names = FALSE, show_heatmap_legend = FALSE,
+                 column_title = "WT - pseudotime")
+
+fig(10,29.5)
+ht_list <- row_anno + expr_anno + h_wt + h_mut
+draw(ht_list)
+
+ht_list <- row_anno + expr_anno + h_wt + h_mut
+pdf(file.path(figdir, paste0(prefix, '_', obj_name, '_', degs_name,  "_pseudotime_heatmap_annotated_logCPM.pdf")), width = 10, height =29.5)
+draw(ht_list,
+     column_title = paste0(prefix, '_', obj_name, '_', degs_name),
+     column_title_gp = gpar(fontsize = 16, fontface = "bold"), padding = unit(c(2, 2, 35, 2), "mm"))
+dev.off()
+
+#mature CTR same but change seu obj
