@@ -6,7 +6,7 @@ This repository contains the supporting code for the paper:
 
 The preprint of paper is available at: https://www.biorxiv.org/content/10.1101/2025.10.08.679225v1.full
 
-The **codes** are organised into folders that correspond to the analyses present in the paper.
+The **code** is organised into folders that correspond to the respective analyses present in the paper.
 
 1. scRNA-seq analysis of *in-vitro* myeloid differentiation
     * Author: G.  Mantica
@@ -41,15 +41,16 @@ The **codes** are organised into folders that correspond to the analyses present
 
 We acknowledge Hugo P. Bastos for the overall supervision of the bioinformatic work
 
+The source code present in this repository is under the MIT license whereas the datasets (from genotyping of single-cell derived colonies) are under the CC-BY-4.0 license.
 
-The **data** is currently hosted at:
+The **datasets** associated with this work are available at:
 
-1. scRNA-seq: GEO GSE298242 
+1. scRNA-seq: GEO [GSE298242](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE298242) 
 
-2. bulk RNA-seq: GEO GSE306029
+2. bulk RNA-seq: GEO [GSE306029](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE306029)
 
-3. variant calling results for genotyping: supplementary table S2 https://www.biorxiv.org/content/10.1101/2025.10.08.679225v1.full
+3. variant calling results for genotyping: [supplementary table S2](https://www.biorxiv.org/content/biorxiv/early/2025/10/08/2025.10.08.679225/DC1/embed/media-1.xlsx?download=true)
 
-4. phenotyping input (output from FlowJo analysis): supplementary table S2 https://www.biorxiv.org/content/10.1101/2025.10.08.679225v1.full
+4. phenotyping input (output from FlowJo analysis): [supplementary table S2](https://www.biorxiv.org/content/biorxiv/early/2025/10/08/2025.10.08.679225/DC1/embed/media-1.xlsx?download=true)
 
-6. WGS files and phylogenetic tree: EGAS00001004280,EGAD00001015750 ; Mendeley data: DOI:10.17632/rcv6tkvbfy.1
+6. WGS files: [EGAS00001004280](https://ega-archive.org/studies/EGAS00001004280), [EGAD00001015750](https://ega-archive.org/datasets/EGAD00001015750) ; and phylogenetic tree: [DOI:10.17632/rcv6tkvbfy.1](https://data.mendeley.com/datasets/rcv6tkvbfy/1)
