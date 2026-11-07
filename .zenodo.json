@@ -4,23 +4,15 @@
   "creators": [
     {
       "name": "Mantica, Giovanna",
-      "affiliation": [
-                "Department of Haematology and Cambridge Stem Cell Institute, University of Cambridge, Cambridge, UK",
-      ]
+      "affiliation": "Department of Haematology and Cambridge Stem Cell Institute, University of Cambridge, Cambridge, UK"
     },
     {
       "name": "Vedi, Aditi",
-      "affiliation": [
-                "Department of Haematology and Cambridge Stem Cell Institute, University of Cambridge, Cambridge, UK",
-                "Department of Paediatric Oncology, Cambridge University Hospitals NHS Foundation Trust, Cambridge, UK"
-      ]
+      "affiliation": "Department of Haematology and Cambridge Stem Cell Institute, University of Cambridge, Cambridge, UK; Department of Paediatric Oncology, Cambridge University Hospitals NHS Foundation Trust, Cambridge, UK"
     },
     {
       "name": "Krzywon, Aleksandra",
-      "affiliation": [
-                "Department of Haematology and Cambridge Stem Cell Institute, University of Cambridge, Cambridge, UK",
-                "Department of Biostatistics and Bioinformatics, Maria Sklodowska-Curie National Research Institute of Oncology, Gliwice Branch, Gliwice, Poland"
-      ]
+      "affiliation": "Department of Haematology and Cambridge Stem Cell Institute, University of Cambridge, Cambridge, UK; Department of Biostatistics and Bioinformatics, Maria Sklodowska-Curie National Research Institute of Oncology, Gliwice Branch, Gliwice, Poland"
     }
   ],
   "access_right": "open",
